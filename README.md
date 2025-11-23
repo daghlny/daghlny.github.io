@@ -68,6 +68,12 @@ git commit -m "Update blog"
 git push origin main
 ```
 
+### 重要说明
+
+- 项目中包含 `.nojekyll` 文件，用于告诉 GitHub Pages 不要使用 Jekyll 构建
+- 这个文件位于 `blog/source/.nojekyll`，每次生成时会自动复制到输出目录
+- 如果遇到 GitHub Pages 构建错误，请确保根目录和 `blog/source/` 目录都有 `.nojekyll` 文件
+
 ## 目录结构
 
 ```
