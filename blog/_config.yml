@@ -5,7 +5,7 @@
 # Site
 title: Yinuo's Blog
 subtitle: 'Welcome to my personal blog'
-description: 'A blog built with Hexo'
+description: 'I like to travel, playing video games and some new staff.'
 keywords: blog, hexo, tech
 author: Yinuo Li
 language: zh-CN
@@ -98,6 +98,8 @@ ignore:
 ## Plugins: https://hexo.io/plugins/
 ## Themes: https://hexo.io/themes/
 theme: cactus
+theme_config:
+  colorscheme: white
 
 # Deployment
 ## Docs: https://hexo.io/docs/one-command-deployment
@@ -105,3 +107,8 @@ deploy:
   type: git
   repo: https://github.com/daghlny/daghlny.github.io
   branch: main
+
+social_links:
+  -
+    icon: steam
+    link: https://steamcommunity.com/id/masamifans/

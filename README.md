@@ -103,7 +103,34 @@ git push origin main
 
 当前使用的是 Hexo 默认主题 `landscape`。你可以在 [Hexo 主题列表](https://hexo.io/themes/) 中选择其他主题。
 
-## 更多信息
+## 快速开始
+
+### 使用一键部署脚本（推荐）
+
+```bash
+# 使用默认提交信息
+./deploy.sh
+
+# 或使用自定义提交信息
+./deploy.sh "添加新文章：我的技术博客"
+```
+
+### 手动部署
+
+详细步骤请查看 [HEXO_GUIDE.md](HEXO_GUIDE.md)
+
+## 文档
+
+- 📖 [Hexo 使用指南](HEXO_GUIDE.md) - 详细的博客管理教程
+  - 如何创建新文章
+  - 如何删除文章
+  - 如何编辑文章
+  - 本地预览
+  - 发布流程
+  - 常用命令
+  - Markdown 语法
+
+## 更多资源
 
 - [Hexo 官方文档](https://hexo.io/zh-cn/docs/)
 - [Hexo 主题](https://hexo.io/themes/)
