@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+    <!-- so meta -->
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="HandheldFriendly" content="True">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
+    <meta name="description" content="本文对普通用户帮助不大, 是作者通过 claude code 自己分析 claude code 泄漏源代码的总结. 如果没有一些基础知识,这篇文档会比较难读, 但是感兴趣的读者可以从文档里找出自己的问题, 并进一步自行探索  本文介绍的是 claude code 的 multi-agent 设计, 主要包括 agent的不同种类, 以及 agent 的生命周期管理. 唯一的入口工具是 Agent">
+<meta property="og:type" content="article">
+<meta property="og:title" content="从源代码分析 Claude Code 多 Agent 设计">
+<meta property="og:url" content="https://daghlny.github.io/2026/05/24/claude-code-multi-agent/index.html">
+<meta property="og:site_name" content="Yinuo&#39;s Blog">
+<meta property="og:description" content="本文对普通用户帮助不大, 是作者通过 claude code 自己分析 claude code 泄漏源代码的总结. 如果没有一些基础知识,这篇文档会比较难读, 但是感兴趣的读者可以从文档里找出自己的问题, 并进一步自行探索  本文介绍的是 claude code 的 multi-agent 设计, 主要包括 agent的不同种类, 以及 agent 的生命周期管理. 唯一的入口工具是 Agent">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2026-05-24T04:00:00.000Z">
+<meta property="article:modified_time" content="2026-05-24T10:01:19.405Z">
+<meta property="article:author" content="Yinuo Li">
+<meta property="article:tag" content="AI">
+<meta property="article:tag" content="Claude Code">
+<meta property="article:tag" content="源码分析">
+<meta name="twitter:card" content="summary">
+    
+    
+      
+        
+          <link rel="shortcut icon" href="/images/favicon.ico">
+        
+      
+      
+        
+          <link rel="icon" type="image/png" href="/images/favicon-192x192.png" sizes="192x192">
+        
+      
+      
+        
+          <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
+        
+      
+    
+    <!-- title -->
+    <title>从源代码分析 Claude Code 多 Agent 设计</title>
+    <!-- async scripts -->
+    <!-- Google Analytics -->
+
+
+    <!-- Umami Analytics -->
+
+
+    <!-- styles -->
+    
+<link rel="stylesheet" href="/css/style.css">
+
+    <!-- persian styles -->
+    
+    <!-- rss -->
+    
+    
+	<!-- mathjax -->
+	
+<meta name="generator" content="Hexo 8.1.1"></head>
+
+<body class="max-width mx-auto px3 ltr">
+    
+      <div id="header-post">
+  <a id="menu-icon" href="#" aria-label="目录"><i class="fa-solid fa-bars fa-lg"></i></a>
+  <a id="menu-icon-tablet" href="#" aria-label="目录"><i class="fa-solid fa-bars fa-lg"></i></a>
+  <a id="top-icon-tablet" href="#" aria-label="顶部" onclick="$('html, body').animate({ scrollTop: 0 }, 'fast');" style="display:none;"><i class="fa-solid fa-chevron-up fa-lg"></i></a>
+  <span id="menu">
+    <span id="nav">
+      <ul>
+        <!--
+       --><li><a href="/">首页</a></li><!--
+     --><!--
+       --><li><a href="/about/">关于</a></li><!--
+     --><!--
+       --><li><a href="/archives/">归档</a></li><!--
+     --><!--
+       --><li><a href="/travel/">旅行</a></li><!--
+     --><!--
+       --><li><a target="_blank" rel="noopener" href="http://github.com/probberechts">项目</a></li><!--
+     -->
+      </ul>
+    </span>
+    <br/>
+    <span id="actions">
+      <ul>
+        
+        
+        <li><a class="icon" aria-label="下一篇" href="/2026/05/24/claude-code-read-tool/"><i class="fa-solid fa-chevron-right" aria-hidden="true" onmouseover="$('#i-next').toggle();" onmouseout="$('#i-next').toggle();"></i></a></li>
+        
+        <li><a class="icon" aria-label="返回顶部" href="#" onclick="$('html, body').animate({ scrollTop: 0 }, 'fast');"><i class="fa-solid fa-chevron-up" aria-hidden="true" onmouseover="$('#i-top').toggle();" onmouseout="$('#i-top').toggle();"></i></a></li>
+        <li><a class="icon" aria-label="分享文章" href="#"><i class="fa-solid fa-share-alt" aria-hidden="true" onmouseover="$('#i-share').toggle();" onmouseout="$('#i-share').toggle();" onclick="$('#share').toggle();return false;"></i></a></li>
+      </ul>
+      <span id="i-prev" class="info" style="display:none;">上一篇</span>
+      <span id="i-next" class="info" style="display:none;">下一篇</span>
+      <span id="i-top" class="info" style="display:none;">返回顶部</span>
+      <span id="i-share" class="info" style="display:none;">分享文章</span>
+    </span>
+    <br/>
+    <div id="share" style="display: none">
+      <ul>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.facebook.com/sharer.php?u=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/"><i class="fab fa-facebook " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://twitter.com/share?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&text=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-twitter " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.linkedin.com/shareArticle?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&title=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-linkedin " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://pinterest.com/pin/create/bookmarklet/?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&is_video=false&description=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-pinterest " aria-hidden="true"></i></a></li>
+  <li><a class="icon" href="mailto:?subject=从源代码分析 Claude Code 多 Agent 设计&body=Check out this article: https://daghlny.github.io/2026/05/24/claude-code-multi-agent/"><i class="fa-solid fa-envelope " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://getpocket.com/save?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&title=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-get-pocket " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://reddit.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&title=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-reddit " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.stumbleupon.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&title=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-stumbleupon " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://digg.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&title=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-digg " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.tumblr.com/share/link?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&name=从源代码分析 Claude Code 多 Agent 设计&description="><i class="fab fa-tumblr " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://news.ycombinator.com/submitlink?u=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&t=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-hacker-news " aria-hidden="true"></i></a></li>
+</ul>
+
+    </div>
+  </span>
+</div>
+
+
+  <div id="post-toc">
+    <ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-%E5%A4%9A-Agent-%E7%9A%84%E5%87%A0%E4%B8%AA%E6%AD%A3%E4%BA%A4%E7%BB%B4%E5%BA%A6"><span class="toc-text">1. 多 Agent 的几个正交维度</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-%E7%BB%B4%E5%BA%A6%E4%B8%80%EF%BC%9A%E4%B8%8A%E4%B8%8B%E6%96%87%E7%BB%A7%E6%89%BF-%E2%80%94%E2%80%94-isolate-vs-fork"><span class="toc-text">1.1 维度一：上下文继承 —— isolate vs fork</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-%E7%BB%B4%E5%BA%A6%E4%BA%8C%EF%BC%9A%E6%89%A7%E8%A1%8C%E6%97%B6%E6%9C%BA-%E2%80%94%E2%80%94-sync-vs-async"><span class="toc-text">1.2 维度二：执行时机 —— sync vs async</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-3-%E7%BB%B4%E5%BA%A6%E4%B8%89%EF%BC%9A%E5%B9%B6%E5%8F%91%E5%BA%A6-%E2%80%94%E2%80%94-%E5%8D%95%E6%AC%A1-vs-%E5%B9%B6%E5%8F%91"><span class="toc-text">1.3 维度三：并发度 —— 单次 vs 并发</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-4-%E7%BB%B4%E5%BA%A6%E5%9B%9B%EF%BC%9A%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F%E9%9A%94%E7%A6%BB-%E2%80%94%E2%80%94-%E5%85%B1%E4%BA%AB-cwd-vs-worktree"><span class="toc-text">1.4 维度四：文件系统隔离 —— 共享 cwd vs worktree</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-5-%E7%BB%B4%E5%BA%A6%E4%BA%94%EF%BC%9A%E8%B0%83%E5%BA%A6%E5%BD%A2%E6%80%81%EF%BC%88%E9%BB%98%E8%AE%A4%E6%9C%AA%E5%BC%80%E5%90%AF%EF%BC%8C%E4%B8%80%E5%8F%A5%E8%AF%9D%EF%BC%89"><span class="toc-text">1.5 维度五：调度形态（默认未开启，一句话）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%BB%E5%B9%B2%E8%B7%AF%E5%BE%84%E6%80%BB%E7%BB%93"><span class="toc-text">主干路径总结</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-%E4%B8%80%E4%B8%AA-SubAgent-%E7%9A%84%E5%8F%82%E6%95%B0%E4%BB%8E%E5%93%AA%E9%87%8C%E6%9D%A5"><span class="toc-text">2. 一个 SubAgent 的参数从哪里来</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-System-prompt"><span class="toc-text">2.1 System prompt</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E7%94%A8%E6%88%B7%E6%B6%88%E6%81%AF%EF%BC%88messages-%E6%95%B0%E7%BB%84%EF%BC%89"><span class="toc-text">2.2 用户消息（messages 数组）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-%E5%B7%A5%E5%85%B7%E9%9B%86"><span class="toc-text">2.3 工具集</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4-%E6%A8%A1%E5%9E%8B"><span class="toc-text">2.4 模型</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-5-%E5%85%B6%E4%BB%96%E5%8F%82%E6%95%B0"><span class="toc-text">2.5 其他参数</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E5%8F%A5%E8%AF%9D%E6%80%BB%E7%BB%93"><span class="toc-text">一句话总结</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-SubAgent-%E7%9A%84%E7%BB%93%E6%9E%9C%E6%98%AF%E6%80%8E%E4%B9%88%E5%9B%9E%E4%BC%A0%E7%9A%84"><span class="toc-text">3. SubAgent 的结果是怎么回传的</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-Sync-%E8%B7%AF%E5%BE%84%EF%BC%88%E9%BB%98%E8%AE%A4%EF%BC%89"><span class="toc-text">3.1 Sync 路径（默认）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-Async-%E8%B7%AF%E5%BE%84%EF%BC%88run-in-background-true-%E6%88%96%E8%A2%AB%E5%BC%BA%E5%88%B6-async-%E6%97%B6%EF%BC%89"><span class="toc-text">3.2 Async 路径（run_in_background: true 或被强制 async 时）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-Fork%E3%80%81remote-%E8%B7%AF%E5%BE%84"><span class="toc-text">3.3 Fork、remote 路径</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-%E7%BB%AD%E8%81%8A%EF%BC%9ASendMessageTool"><span class="toc-text">3.4 续聊：SendMessageTool</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-%E5%B9%B6%E5%8F%91%E4%B8%8E%E7%BB%93%E6%9E%9C%E6%B1%87%E6%80%BB"><span class="toc-text">4. 并发与结果汇总</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E6%80%8E%E4%B9%88%E5%90%8C%E6%97%B6%E5%8F%91%E8%B5%B7%E5%A4%9A%E4%B8%AA"><span class="toc-text">4.1 怎么同时发起多个</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-%E5%BC%95%E6%93%8E%E5%B1%82%E6%80%8E%E4%B9%88%E5%B9%B6%E5%8F%91%E6%89%A7%E8%A1%8C"><span class="toc-text">4.2 引擎层怎么并发执行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-%E7%BB%93%E6%9E%9C%E5%A6%82%E4%BD%95%E6%B1%87%E6%80%BB"><span class="toc-text">4.3 结果如何汇总</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-4-%E5%AE%9E%E6%88%98%E6%B3%A8%E6%84%8F%E7%82%B9"><span class="toc-text">4.4 实战注意点</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Appendix%EF%BC%9AAgentTool-%E7%9A%84-%E2%80%9CWriting-the-prompt%E2%80%9D-%E8%8A%82"><span class="toc-text">Appendix：AgentTool 的 “Writing the prompt” 节</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%80%BB%E6%A1%86%E6%9E%B6%EF%BC%9A%E3%80%8C%E5%88%9A%E8%B5%B0%E8%BF%9B%E6%88%BF%E9%97%B4%E7%9A%84%E5%90%8C%E4%BA%8B%E3%80%8D"><span class="toc-text">总框架：「刚走进房间的同事」</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-%E6%9D%A1%E5%85%B7%E4%BD%93%E8%A6%81%E6%B1%82"><span class="toc-text">5 条具体要求</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%A0%B8%E5%BF%83%E5%8F%8D%E6%A8%A1%E5%BC%8F%EF%BC%9A%E3%80%8CNever-delegate-understanding%E3%80%8D"><span class="toc-text">核心反模式：「Never delegate understanding」</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E5%8F%A5%E6%80%BB%E7%BB%93"><span class="toc-text">一句总结</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%A1%BA%E5%B8%A6%EF%BC%9Acoordinator-%E6%A8%A1%E5%BC%8F%E6%9C%89%E4%B8%AA%E5%8A%A0%E5%BC%BA%E7%89%88"><span class="toc-text">顺带：coordinator 模式有个加强版</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Appendix%EF%BC%9A%E9%BB%98%E8%AE%A4%E6%9C%AA%E5%90%AF%E7%94%A8%E7%9A%84%E5%87%A0%E7%A7%8D%E5%BD%A2%E6%80%81"><span class="toc-text">Appendix：默认未启用的几种形态</span></a></li></ol>
+  </div>
+
+
+    
+    <div class="content index py4 ">
+        
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+  <header>
+    
+    <h1 class="posttitle p-name" itemprop="name headline">
+        从源代码分析 Claude Code 多 Agent 设计
+    </h1>
+
+
+
+    <div class="meta">
+      <span class="author p-author h-card" itemprop="author" itemscope itemtype="http://schema.org/Person">
+        <span class="p-name" itemprop="name">Yinuo Li</span>
+      </span>
+      
+    <div class="postdate">
+      
+        <time datetime="2026-05-24T04:00:00.000Z" class="dt-published" itemprop="datePublished">2026-05-24</time>
+        
+      
+    </div>
+
+
+      
+
+      
+    <div class="article-tag">
+        <i class="fa-solid fa-tag"></i>
+        <a class="p-category" href="/tags/AI/" rel="tag">AI</a>, <a class="p-category" href="/tags/Claude-Code/" rel="tag">Claude Code</a>, <a class="p-category" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a>
+    </div>
+
+
+    </div>
+  </header>
+  
+
+  <div class="content e-content" itemprop="articleBody">
+    <hr>
+<p><strong>本文对普通用户帮助不大, 是作者通过 claude code 自己分析 claude code 泄漏源代码的总结. 如果没有一些基础知识,这篇文档会比较难读, 但是感兴趣的读者可以从文档里找出自己的问题, 并进一步自行探索</strong></p>
+<hr>
+<p>本文介绍的是 claude code 的 multi-agent 设计, 主要包括 agent的不同种类, 以及 agent 的生命周期管理.</p>
+<p>唯一的入口工具是 <code>AgentTool</code>（<code>src/tools/AgentTool/AgentTool.tsx</code>，1397 行）——所有多 agent 形态最终都要走它。</p>
+<blockquote>
+<p><strong>关于「决策指引写在哪」</strong>：下文每个维度都会在末尾点一下「这条判定规则模型从哪里读到」。只有两层：主 system prompt（提供「该不该用 sub-agent」的最高层判断）和 AgentTool 自身的工具描述（具体的 sync&#x2F;async、isolation、fork、续聊等所有判定规则都在这）。用户自定义 agent 的 frontmatter <code>description</code> 会被合并到 AgentTool 描述里的 agent list 节，是用户唯一能影响模型决策的入口。</p>
+</blockquote>
+<hr>
+<h2 id="1-多-Agent-的几个正交维度"><a href="#1-多-Agent-的几个正交维度" class="headerlink" title="1. 多 Agent 的几个正交维度"></a>1. 多 Agent 的几个正交维度</h2><blockquote>
+<p>「fork」「isolate」「async」「parallel」这些词不在一个维度上——把它们放到同一句话里讨论会越说越乱。下面把它们拆到四个独立的维度上。</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>选项</th>
+<th>默认</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>上下文继承</td>
+<td>isolate（隔离）&#x2F; fork（继承父）</td>
+<td><strong>isolate</strong></td>
+</tr>
+<tr>
+<td>执行时机</td>
+<td>sync（父等子）&#x2F; async（后台）</td>
+<td><strong>sync</strong></td>
+</tr>
+<tr>
+<td>并发度</td>
+<td>单次 &#x2F; 并发（一回合多 tool_use）</td>
+<td>取决于父的决定</td>
+</tr>
+<tr>
+<td>文件系统</td>
+<td>共享父 cwd &#x2F; worktree 隔离</td>
+<td><strong>共享父 cwd</strong></td>
+</tr>
+</tbody></table>
+<p>第五个维度——「调度形态」——本质是「父 agent 的 system prompt 长什么样」，跟具体调用语义关系不大，放到本节末尾一句话带过。</p>
+<h3 id="1-1-维度一：上下文继承-——-isolate-vs-fork"><a href="#1-1-维度一：上下文继承-——-isolate-vs-fork" class="headerlink" title="1.1 维度一：上下文继承 —— isolate vs fork"></a>1.1 维度一：上下文继承 —— isolate vs fork</h3><p><strong>isolate</strong>（默认）：子 agent 看不到父的对话历史。父跟子之间<strong>只通过 <code>prompt</code> 字符串这一个字段传递信息</strong>。子从零开始，自己的 system prompt + 父传过来的一段任务描述，仅此而已。</p>
+<p><strong>fork</strong>（<code>FORK_SUBAGENT</code> flag 开启时可选）：子 agent 继承父的<strong>完整</strong>对话历史 + 父的 system prompt 字节 + 父的 exact 工具数组。父 &#x3D; 子的 API 请求前缀字节级相同，可以共享 prompt cache。</p>
+<p>选择依据<strong>不是「父能不能看到子的工具调用」</strong>——无论 fork 还是 isolate，子的中间过程（thinking &#x2F; 工具调用 &#x2F; 工具结果）都不会进父的 messages，父只能拿到子的最终文本（详见 §3）。真正的区别在于<strong>子需要什么</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>选 fork</th>
+<th>选 isolate</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>子需要理解父跟用户聊过什么</td>
+<td>子需要新视角 &#x2F; 跟父对话无关</td>
+</tr>
+<tr>
+<td>子是父思路的自然延伸（研究、实现接着 plan 走）</td>
+<td>子是个独立角色（code reviewer、特定 specialist）</td>
+</tr>
+<tr>
+<td>想要并发多路、又怕重复交代背景</td>
+<td>子能力跟父不同，不该看父的工具选择</td>
+</tr>
+<tr>
+<td>工具池跟父一致</td>
+<td>工具池由 agent 定义决定，可能跟父完全不同</td>
+</tr>
+<tr>
+<td>模型必须跟父一致（cache 共享要求）</td>
+<td>子可以用不同模型</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p><em>决策指引位置</em>：「什么时候 fork」整段写在 AgentTool 的工具描述里，仅 <code>FORK_SUBAGENT</code> 开启时才拼进去。主 system prompt 这边只在「该不该用 sub-agent」总纲里一带而过。</p>
+</blockquote>
+<p>外部用户拿到的 npm 版本 <code>FORK_SUBAGENT</code> 默认是关的，所以<strong>默认就是 isolate</strong>。下文未特别说明时，都默认讨论 isolate 路径。</p>
+<h3 id="1-2-维度二：执行时机-——-sync-vs-async"><a href="#1-2-维度二：执行时机-——-sync-vs-async" class="headerlink" title="1.2 维度二：执行时机 —— sync vs async"></a>1.2 维度二：执行时机 —— sync vs async</h3><p><strong>sync</strong>（默认）：父调用 <code>AgentTool</code> 后等到子跑完才继续。子的最终文本作为这次工具调用的返回值。</p>
+<p><strong>async</strong>：父调用 <code>AgentTool</code> 立刻拿到一个「已启动」的占位结果（含 <code>agentId</code> 和 <code>outputFile</code> 路径），子在后台跑。真正的最终结果通过 §3.2 介绍的 <code>&lt;task-notification&gt;</code> 机制在<strong>未来某一轮</strong>作为 user 消息回报。触发 async 的途径有四种：</p>
+<ul>
+<li>父显式传 <code>run_in_background: true</code>——AgentTool 的可选参数，唯一用户能直接控制的开关</li>
+<li>父处于 <strong>coordinator 模式</strong>——一种默认未启用的形态，主 system prompt 被换成「只调度、不执行」的版本（详见附录）</li>
+<li><strong>FORK_SUBAGENT</strong> flag 开启——这会让所有 spawn 都强制 async，不只是 fork 路径本身</li>
+<li>父处于 <strong>KAIROS</strong> 模式——一种默认未启用的长驻 assistant 形态，强制所有 sub-agent 异步以避免主 loop 被卡住</li>
+</ul>
+<p>什么时候用 async：</p>
+<ul>
+<li>父想在等子的同时做别的事（包括同时再起多个 agent）</li>
+<li>任务可能跑得很长，父不想被卡住</li>
+</ul>
+<p>什么时候保持 sync：</p>
+<ul>
+<li>父没下一步可做、就等子的结果</li>
+<li>用户在交互式终端前等着看进度</li>
+</ul>
+<blockquote>
+<p><em>决策指引位置</em>：sync&#x2F;async 完全靠 AgentTool 工具描述里的 “Foreground vs background” 一段说明，主 system prompt 完全不涉及。fork、coordinator、team 模式（详见 §1.5）等强制 async 的场景下这一段会被删掉或改写。</p>
+</blockquote>
+<h3 id="1-3-维度三：并发度-——-单次-vs-并发"><a href="#1-3-维度三：并发度-——-单次-vs-并发" class="headerlink" title="1.3 维度三：并发度 —— 单次 vs 并发"></a>1.3 维度三：并发度 —— 单次 vs 并发</h3><p>并发<strong>不是 AgentTool 的参数</strong>，而是父在某一轮模型回复里<strong>写了几个 tool_use 块</strong>的自然结果。</p>
+<p>模型在一条 assistant message 里输出 N 个 <code>tool_use</code>（其中若干是 <code>AgentTool</code>），引擎按到达顺序立即 dispatch 每一个，不等本轮完整流式结束。这套逻辑在 <code>src/services/tools/StreamingToolExecutor.ts:40</code>（<code>StreamingToolExecutor</code> 类，注释原话：”Executes tools as they stream in with concurrency control”）。</p>
+<p>具体而言：</p>
+<ul>
+<li><code>AgentTool</code> 标记为 concurrency-safe，多个 AgentTool 互相之间并行执行</li>
+<li>「非 concurrency-safe」的工具（如某些 Bash 模式）必须独占</li>
+<li>结果按<strong>收到 tool_use 的顺序</strong>回拼到 messages（不是按完成顺序），保证父侧看到的顺序稳定</li>
+</ul>
+<p>因此「并发跑多个 sub-agent」根本不需要特殊 API：模型在一次回复里输出多个 AgentTool 调用，引擎就并发跑。详见 §4。</p>
+<blockquote>
+<p><em>决策指引位置</em>：通用的「无依赖工具尽量并发」写在主 system prompt 里（对所有工具都成立）；针对 AgentTool 的「想并发就一条消息里发多个」则在 AgentTool 工具描述里再强调一次。两层互相加强。</p>
+</blockquote>
+<h3 id="1-4-维度四：文件系统隔离-——-共享-cwd-vs-worktree"><a href="#1-4-维度四：文件系统隔离-——-共享-cwd-vs-worktree" class="headerlink" title="1.4 维度四：文件系统隔离 —— 共享 cwd vs worktree"></a>1.4 维度四：文件系统隔离 —— 共享 cwd vs worktree</h3><p><code>isolation: &quot;worktree&quot;</code> 是 AgentTool 的可选参数。设置后引擎调 <code>git worktree add</code> 在 <code>.git/worktrees/agent-&lt;id&gt;/</code> 下挂一份独立工作副本，子 agent 的所有文件读写都基于这个目录（通过 <code>runWithCwdOverride</code> 改 cwd）。</p>
+<p>完成后：</p>
+<ul>
+<li>子没改文件 → worktree 被删（透明清理）</li>
+<li>子改了文件 → worktree 和分支保留，路径返回给父</li>
+</ul>
+<p>适合「让 agent 大胆改一遍，我审查后再决定要不要要」的探索性工作。<strong>这个维度跟 isolate&#x2F;fork、sync&#x2F;async 完全正交</strong>——可以 fork + worktree，也可以 isolate + async + worktree。</p>
+<p><code>isolation: &quot;remote&quot;</code> 是同一维度上的另一选项，但只对 <code>USER_TYPE === &#39;ant&#39;</code> 暴露，外部用户看不到。</p>
+<blockquote>
+<p><code>USER_TYPE === &#39;ant&#39;</code> 是 Claude Code 在源码里用来识别 Anthropic 内部员工的标志（<code>ant</code> &#x3D; Anthropic）。下文出现「仅 ant 用户可见」「仅内部」都是这个意思。</p>
+</blockquote>
+<blockquote>
+<p><em>决策指引位置</em>：worktree 参数怎么用、何时用，只在 AgentTool 工具描述里有一行说明；主 system prompt 不提。</p>
+</blockquote>
+<h3 id="1-5-维度五：调度形态（默认未开启，一句话）"><a href="#1-5-维度五：调度形态（默认未开启，一句话）" class="headerlink" title="1.5 维度五：调度形态（默认未开启，一句话）"></a>1.5 维度五：调度形态（默认未开启，一句话）</h3><p>普通模式下父 agent 既规划又执行；<code>COORDINATOR_MODE</code> flag 开启时父被换成一份「只调度、不执行」的 system prompt；<code>agentSwarmsEnabled</code> 开启时还能起一个长驻 teammate 团队（跑在独立 tmux&#x2F;iTerm pane 里）。这两条都需要 feature flag + env var 双开关，外部 npm 版本默认全关，本文不展开。</p>
+<h3 id="主干路径总结"><a href="#主干路径总结" class="headerlink" title="主干路径总结"></a>主干路径总结</h3><p>外部用户日常碰到的多 agent 配置，就是这四个维度上的几种常见组合：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>上下文</th>
+<th>执行</th>
+<th>并发</th>
+<th>文件</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>找个 specialist 做一次性任务</td>
+<td>isolate</td>
+<td>sync</td>
+<td>单次</td>
+<td>共享</td>
+</tr>
+<tr>
+<td>同时起多路独立调查</td>
+<td>isolate</td>
+<td>sync 或 async</td>
+<td>并发</td>
+<td>共享</td>
+</tr>
+<tr>
+<td>让 agent 试改一版别动 main</td>
+<td>isolate</td>
+<td>sync</td>
+<td>单次</td>
+<td>worktree</td>
+</tr>
+<tr>
+<td>后台跑长任务，自己接着干别的</td>
+<td>isolate</td>
+<td>async</td>
+<td>单次</td>
+<td>共享</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="2-一个-SubAgent-的参数从哪里来"><a href="#2-一个-SubAgent-的参数从哪里来" class="headerlink" title="2. 一个 SubAgent 的参数从哪里来"></a>2. 一个 SubAgent 的参数从哪里来</h2><p>调用 <code>AgentTool</code> 时父传入的 schema 字段非常少（<code>AgentTool.tsx:83-85</code> 附近）：</p>
+<figure class="highlight ts"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">&#123;</span><br><span class="line">  <span class="attr">description</span>: <span class="built_in">string</span>,           <span class="comment">// 3-5 词的任务描述</span></span><br><span class="line">  <span class="attr">prompt</span>: <span class="built_in">string</span>,                <span class="comment">// 真正交给子的指令文本</span></span><br><span class="line">  <span class="attr">subagent_type</span>?: <span class="built_in">string</span>,        <span class="comment">// 子的角色（不填 → general-purpose，或 fork）</span></span><br><span class="line">  <span class="attr">run_in_background</span>?: <span class="built_in">boolean</span>,</span><br><span class="line">  <span class="attr">isolation</span>?: <span class="string">&#x27;worktree&#x27;</span> | <span class="string">&#x27;remote&#x27;</span>,</span><br><span class="line">  <span class="attr">model</span>?: <span class="built_in">string</span>,</span><br><span class="line">  <span class="attr">name</span>?: <span class="built_in">string</span>,                 <span class="comment">// 给子起个名字方便后续 SendMessage 续聊</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>但子启动时实际生效的参数远不止这些。下面逐项说每个参数是<strong>写死的</strong>、<strong>由父决定的</strong>还是<strong>混合</strong>。</p>
+<h3 id="2-1-System-prompt"><a href="#2-1-System-prompt" class="headerlink" title="2.1 System prompt"></a>2.1 System prompt</h3><p>子的 system prompt 由 <code>subagent_type</code> 选中的 agent 定义提供。每个 agent 定义实现 <code>getSystemPrompt()</code> 方法，返回该角色的固定指令文本。Agent 定义来源有两类：</p>
+<ul>
+<li><strong>内置</strong>：<code>src/tools/AgentTool/built-in/</code> 下的 6 个文件——编译进二进制：<ul>
+<li><code>generalPurposeAgent.ts</code>（兜底）</li>
+<li><code>exploreAgent.ts</code>（代码探索）</li>
+<li><code>planAgent.ts</code>（实现规划）</li>
+<li><code>verificationAgent.ts</code>（结果校验）</li>
+<li><code>claudeCodeGuideAgent.ts</code>（Claude Code 用法答疑）</li>
+<li><code>statuslineSetup.ts</code>（状态栏配置）</li>
+</ul>
+</li>
+<li><strong>用户自定义</strong>：<code>~/.claude/agents/*.md</code>、<code>./.claude/agents/*.md</code>、插件目录下的 Markdown，由 <code>loadAgentsDir.ts</code> 读 frontmatter 加载——用户可写、可改、可通过 <code>/agents</code> 命令管理</li>
+</ul>
+<p><strong>父 agent 在调用时不能直接覆盖子的 system prompt</strong>——这是个有意的设计：子的角色和能力由用户&#x2F;系统预先定义，父只是把任务派过去。父能影响的只有「选哪一种」。</p>
+<blockquote>
+<p>例外：<code>fork</code> 路径下子继承父的 system prompt 字节流（不是子自己定义的）；此外 SDK 集成给了 <code>customSystemPrompt</code> 通道，CLI 里 <code>--append-system-prompt</code> 可以追加。这些都不是主干。</p>
+</blockquote>
+<p>子的 system prompt 渲染时还会拼上 env info（cwd、git 状态、平台、模型 ID），跟主 agent 的 system prompt 拼法一致——这部分是引擎层做的，跟父 &#x2F; 子的对话内容无关。</p>
+<h3 id="2-2-用户消息（messages-数组）"><a href="#2-2-用户消息（messages-数组）" class="headerlink" title="2.2 用户消息（messages 数组）"></a>2.2 用户消息（messages 数组）</h3><p>子的初始 messages 数组里<strong>只有一条 user 消息</strong>，内容就是父调用 AgentTool 时传过来的 <code>prompt</code> 字符串。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">messages = [ &#123; role: &#x27;user&#x27;, content: &lt;父传的 prompt&gt; &#125; ]</span><br></pre></td></tr></table></figure>
+
+<p>这条 user message 是 isolate 路径下父 → 子之间<strong>唯一的信息通道</strong>。父的对话历史、CLAUDE.md、用户的原始提问、之前的工具结果……子全都看不到。</p>
+<p>所以「父怎么写这个 prompt」是 isolate 模式下最重要的事——AgentTool 的工具描述（<code>src/tools/AgentTool/prompt.ts</code>）大段都在教模型「这个 prompt 要写得像跟一个刚走进房间的同事介绍背景」。这一段具体讲了什么，见<strong>附录：AgentTool 的 “Writing the prompt” 节</strong>。</p>
+<p><code>description</code> 字段不进 prompt，只用来在父的 UI 上显示一行任务标签。</p>
+<blockquote>
+<p><strong>fork 路径下完全相反</strong>：父把自己整个 messages 数组都传给子作为 history，包括 messages[0] 的 CLAUDE.md &#x2F; MEMORY.md、用户的原始提问、所有历史 user&#x2F;assistant 消息和工具调用结果。子启动后看到的就是「父此刻的对话快照」。这也是为什么 fork 的 prompt 写成 directive 风格（”接着干 X”）就够了，不需要交代背景——背景全都在继承过来的 history 里。</p>
+</blockquote>
+<h3 id="2-3-工具集"><a href="#2-3-工具集" class="headerlink" title="2.3 工具集"></a>2.3 工具集</h3><p>子的工具集<strong>不是父的工具集</strong>，而是这样算出来的：</p>
+<ol>
+<li>取 agent 定义里的 <code>tools</code>（白名单，列出能用的工具名）和 <code>disallowedTools</code>（黑名单）</li>
+<li>用父的 <code>toolPermissionContext</code>，但把 <code>mode</code> 替换成 <code>selectedAgent.permissionMode ?? &#39;acceptEdits&#39;</code></li>
+<li>调 <code>assembleToolPool(workerPermissionContext, mcp.tools)</code> 组装出最终工具集</li>
+</ol>
+<p>代码在 <code>AgentTool.tsx:573-577</code>。三个要点：</p>
+<ul>
+<li><strong>能用哪些工具</strong>由 agent 定义决定，跟父手里有什么工具无关——父用 <code>plan</code> 模式不能干活，但派给子的 <code>permissionMode</code> 可以是 <code>acceptEdits</code>，子能真改文件</li>
+<li>父<strong>不能</strong>通过 AgentTool 的参数去 override 子的工具集</li>
+<li>MCP 工具会按 server 是否在 agent 的允许列表里被过滤</li>
+</ul>
+<p>这个设计意味着：sub-agent 是一种<strong>能力上预先定义好的角色</strong>，而不是「父的拷贝」。</p>
+<blockquote>
+<p>例外：fork 路径下子直接用父的 exact 工具数组（<code>useExactTools: true</code>），这是为了字节级 cache 共享，跟普通路径完全相反。</p>
+</blockquote>
+<h3 id="2-4-模型"><a href="#2-4-模型" class="headerlink" title="2.4 模型"></a>2.4 模型</h3><p>agent 定义里的 <code>model</code> 字段决定子用哪个模型：</p>
+<ul>
+<li><code>&#39;inherit&#39;</code>（最常见）→ 沿用父此刻的模型</li>
+<li>具体模型 ID（<code>&#39;claude-sonnet-4-6&#39;</code> 之类）→ 强制用那个</li>
+</ul>
+<p>父调用时也可以通过 <code>model</code> 参数覆盖（除 fork 路径外，因为换模型会破坏 cache）。</p>
+<p>agent 定义和父的参数都没指定时，落到主线程当前模型。</p>
+<blockquote>
+<p>注意：「沿用父」跟 §1.1 里 fork 的「继承父上下文」不是一回事。这里只是模型 ID 跟父一样，子的对话历史还是空的。</p>
+</blockquote>
+<h3 id="2-5-其他参数"><a href="#2-5-其他参数" class="headerlink" title="2.5 其他参数"></a>2.5 其他参数</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>谁决定</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>description</code></td>
+<td>父</td>
+<td>仅 UI 显示用，不进 prompt</td>
+</tr>
+<tr>
+<td><code>isolation</code></td>
+<td>父</td>
+<td><code>&#39;worktree&#39;</code> 或 <code>&#39;remote&#39;</code>，对子的运行环境做隔离</td>
+</tr>
+<tr>
+<td><code>run_in_background</code></td>
+<td>父</td>
+<td>设为 true 就走 async；coordinator&#x2F;fork&#x2F;KAIROS 模式下会被强制为 true</td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td>父</td>
+<td>给子起个名字，父侧记下，后续 SendMessage 可以按名字找它</td>
+</tr>
+<tr>
+<td><code>cwd</code></td>
+<td>KAIROS 内部</td>
+<td>覆盖子的 cwd；普通用户场景下不可见、父不能直接传</td>
+</tr>
+<tr>
+<td>permission mode</td>
+<td>agent 定义</td>
+<td>详见 §2.3</td>
+</tr>
+<tr>
+<td><code>background</code></td>
+<td>agent 定义</td>
+<td>字段值置 true 时，无论父怎么传 <code>run_in_background</code> 都强制 async</td>
+</tr>
+</tbody></table>
+<h3 id="一句话总结"><a href="#一句话总结" class="headerlink" title="一句话总结"></a>一句话总结</h3><blockquote>
+<p><strong>父能定的只有 “做什么”（prompt）、”找谁做”（subagent_type）、”做完怎么交付”（isolation &#x2F; run_in_background &#x2F; name）；”用什么能力做”（system prompt + tools + model）由 agent 定义写死。</strong></p>
+</blockquote>
+<p>这是 isolate 路径的核心约定。fork 路径反过来：父几乎不参与决定，子直接复用父此刻的全部上下文。</p>
+<hr>
+<h2 id="3-SubAgent-的结果是怎么回传的"><a href="#3-SubAgent-的结果是怎么回传的" class="headerlink" title="3. SubAgent 的结果是怎么回传的"></a>3. SubAgent 的结果是怎么回传的</h2><h3 id="3-1-Sync-路径（默认）"><a href="#3-1-Sync-路径（默认）" class="headerlink" title="3.1 Sync 路径（默认）"></a>3.1 Sync 路径（默认）</h3><p>父调用 <code>AgentTool</code> 后，引擎在父进程内同步跑子的整个 agent loop（递归调用 <code>query()</code>）。子跑到 <code>stop_reason: &#39;end_turn&#39;</code> 时拿到的那条 assistant 最终文本（不含 thinking、不含 tool_use），就是 AgentTool 这次工具调用的返回值。</p>
+<p>引擎把这个字符串包成一个 <code>tool_result</code> 块，塞进父的 messages 数组：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">父的 assistant 块: [tool_use &#123; name: &#x27;Agent&#x27;, input: &#123;prompt: &#x27;...&#x27;&#125; &#125;]</span><br><span class="line">父的 user 块:      [tool_result &#123; tool_use_id: &#x27;...&#x27;, content: &#x27;&lt;子的最终文本&gt;&#x27; &#125;]</span><br></pre></td></tr></table></figure>
+
+<p>接下来父进入下一次模型调用，看到这条 tool_result，由模型自己决定怎么用这个结果（继续干活、回复用户、再调一个工具）。</p>
+<p>子的中间过程（thinking、工具调用、工具结果）<strong>不进父的 messages</strong>。父只看到「子说了句话」。</p>
+<p>这跟普通工具调用（Read、Bash……）的语义<strong>完全一致</strong>——AgentTool 在父看来就是一个返回字符串的工具，引擎不为它特殊化。</p>
+<h3 id="3-2-Async-路径（run-in-background-true-或被强制-async-时）"><a href="#3-2-Async-路径（run-in-background-true-或被强制-async-时）" class="headerlink" title="3.2 Async 路径（run_in_background: true 或被强制 async 时）"></a>3.2 Async 路径（<code>run_in_background: true</code> 或被强制 async 时）</h3><p>async 路径下 AgentTool 的「返回值」不是子的最终文本，而是一个占位结构（<code>AgentTool.tsx:757</code>）：</p>
+<figure class="highlight ts"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">&#123;</span><br><span class="line">  <span class="attr">isAsync</span>: <span class="literal">true</span>,</span><br><span class="line">  <span class="attr">status</span>: <span class="string">&#x27;async_launched&#x27;</span>,</span><br><span class="line">  <span class="attr">agentId</span>: <span class="string">&#x27;agent-...&#x27;</span>,</span><br><span class="line">  <span class="attr">description</span>: <span class="string">&#x27;...&#x27;</span>,</span><br><span class="line">  <span class="attr">prompt</span>: <span class="string">&#x27;...&#x27;</span>,</span><br><span class="line">  <span class="attr">outputFile</span>: <span class="string">&#x27;/path/to/transcript&#x27;</span>,</span><br><span class="line">  <span class="attr">canReadOutputFile</span>: <span class="built_in">boolean</span>,</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>引擎把这个结构序列化成 tool_result 文本塞进父 messages。父在下一次模型调用里看到的就是「子已启动，agentId &#x3D; …，输出文件 &#x3D; …」。</p>
+<p>子真正跑完时，引擎调 <code>enqueuePendingNotification</code>，构造一段 XML：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">task-notification</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">task-id</span>&gt;</span>agent-xyz<span class="tag">&lt;/<span class="name">task-id</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">status</span>&gt;</span>completed|failed|killed<span class="tag">&lt;/<span class="name">status</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">summary</span>&gt;</span>Agent &quot;...&quot; completed<span class="tag">&lt;/<span class="name">summary</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">result</span>&gt;</span>...子的最终文本...<span class="tag">&lt;/<span class="name">result</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">usage</span>&gt;</span>...token / 耗时...<span class="tag">&lt;/<span class="name">usage</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">task-notification</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>这段 XML 进<strong>全局待处理通知队列</strong>。父 <code>queryLoop</code> 的下一次 <code>while</code> 迭代顶部（即父下一次模型调用之前），src&#x2F;query.ts:1631 附近把队列里所有 <code>mode === &#39;task-notification&#39;</code> 的命令序列化成 <strong>user-role 消息</strong>塞进父的 messages 数组。如果父正空闲、没有活跃的 queryLoop，通知就一直挂在队列里，等用户开口启动新 trajectory 才会被消费。</p>
+<p>父在那一轮拼好的 messages 里就会出现这样一条 user 消息（最小精简版本）：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;role&quot;</span><span class="punctuation">:</span> <span class="string">&quot;user&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;content&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;text&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;text&quot;</span><span class="punctuation">:</span> <span class="string">&quot;&lt;task-notification&gt;\n  &lt;task-id&gt;agent-a1b&lt;/task-id&gt;\n  &lt;status&gt;completed&lt;/status&gt;\n  &lt;summary&gt;Agent \&quot;Investigate auth bug\&quot; completed&lt;/summary&gt;\n  &lt;result&gt;Found null pointer in src/auth/validate.ts:42 ...&lt;/result&gt;\n&lt;/task-notification&gt;&quot;</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">]</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>它在 messages 数组里跟普通 user 消息<strong>结构完全一样</strong>——<code>role: &#39;user&#39;</code> + 一个 text 块，引擎和 API 都不为它特殊化。模型靠看到内容以 <code>&lt;task-notification&gt;</code> 开头来识别「这不是用户真发的话、是系统通知」。模型按通知里的 <code>&lt;result&gt;</code> 字段决定下一步。</p>
+<p>几个关键点：</p>
+<ul>
+<li><strong>父看到结果的时机不是子完成的瞬间</strong>，而是父 <code>queryLoop</code> 下一次 <code>while</code> 迭代顶部（同上一段）。coordinator 模式下父被专门教育成「launched 后就停在那、什么也别做、别 fabricate 结果」，正是因为父在通知到达前没有任何真实信息可用</li>
+<li><strong>task-notification 是 user-role 消息</strong>，不是某种特殊事件类型。模型自己分辨「这是个通知、不是真用户在说话」是靠看 XML 标签</li>
+<li>通知里的 <code>&lt;result&gt;</code> 字段就是 sync 路径下作为 tool_result 内容的那个字符串——同一个东西，只是通过不同信道送达</li>
+<li><strong><code>outputFile</code></strong> 是子全程的 transcript 落盘路径。父需要细节时可以主动 Read 这个文件，但 prompt 明确警告：”Don’t peek”——读了就会把子的工具噪声拉进父上下文，丢了 async 的好处</li>
+</ul>
+<h3 id="3-3-Fork、remote-路径"><a href="#3-3-Fork、remote-路径" class="headerlink" title="3.3 Fork、remote 路径"></a>3.3 Fork、remote 路径</h3><p>外部默认未启用，简单说明：</p>
+<ul>
+<li><strong>fork</strong>：<code>FORK_SUBAGENT</code> flag 开启后，所有 spawn 都被强制 async（<code>AgentTool.tsx:557</code> <code>forceAsync = isForkSubagentEnabled()</code>），结果走 §3.2 的 task-notification 通路</li>
+<li><strong>remote</strong>：返回 <code>status: &#39;remote_launched&#39;</code>，远端跑完时通过 WebSocket → adapter 转成 task-notification</li>
+</ul>
+<h3 id="3-4-续聊：SendMessageTool"><a href="#3-4-续聊：SendMessageTool" class="headerlink" title="3.4 续聊：SendMessageTool"></a>3.4 续聊：SendMessageTool</h3><p>不属于「结果回传」的范畴，但跟多 agent 关系密切：父或某个 teammate 可以用 <code>SendMessageTool</code> 给一个已经存在的 async agent 发后续消息（用 <code>agentId</code> 或 <code>name</code> 寻址）。这相当于「跟同一个 agent 续聊一轮」——它的所有上下文都保留着，不必从头交代。</p>
+<p>这是 coordinator workflow 的核心模式：用一个 worker 做研究，研究完不要丢，而是继续 SendMessage 让它接着 implement——避免再起个新 agent 重新读一遍代码。</p>
+<h4 id="消息怎么送到子那边"><a href="#消息怎么送到子那边" class="headerlink" title="消息怎么送到子那边"></a>消息怎么送到子那边</h4><p>SendMessage 把消息送到目标 sub-agent 的途径，<strong>跟 §3.2 的 task-notification 走的是两套不同的队列</strong>。当目标处于 <code>running</code> 状态时（<code>SendMessageTool.ts:808-820</code>）：</p>
+<figure class="highlight ts"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (task.<span class="property">status</span> === <span class="string">&#x27;running&#x27;</span>) &#123;</span><br><span class="line">  <span class="title function_">queuePendingMessage</span>(agentId, input.<span class="property">message</span>, setAppState)</span><br><span class="line">  <span class="keyword">return</span> &#123; <span class="attr">message</span>: <span class="string">&quot;Message queued for delivery to $&#123;name&#125; at its next tool round.&quot;</span> &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>queuePendingMessage</code> 就是往目标 task 的 <code>task.pendingMessages</code> 数组里 push 一条字符串。子 agent 在自己 <code>queryLoop</code> 的下一次 <code>while</code> 迭代开始时（即下一次模型调用之前）调 <code>drainPendingMessages</code> 把队列掏空、构造成 user 消息追加到 messages 数组，然后才发下一次模型调用。</p>
+<p>跟 task-notification 路径对比：</p>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>task-notification（§3.2）</th>
+<th>SendMessage → 运行中 sub-agent</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>队列在哪</td>
+<td><strong>全局</strong> <code>pendingCommands</code> 队列</td>
+<td><strong>每个 task 自己</strong>的 <code>task.pendingMessages</code> 数组</td>
+</tr>
+<tr>
+<td>消费者</td>
+<td>父 agent</td>
+<td>这个 sub-agent 自己</td>
+</tr>
+<tr>
+<td>触发时机</td>
+<td>父 <code>queryLoop</code> 下一次迭代顶部</td>
+<td>子 <code>queryLoop</code> 下一次迭代顶部</td>
+</tr>
+<tr>
+<td>落地形态</td>
+<td>user 消息，含 <code>&lt;task-notification&gt;</code> XML</td>
+<td>user 消息，纯文本（SendMessage 的 <code>message</code> 原文）</td>
+</tr>
+</tbody></table>
+<p>「队列 + 下一次 <code>while</code> 迭代开始时 drain」这个模式是两边共享的，但<strong>实例是分开的两套</strong>——前者管「子完成时通知父」、后者管「外部给子续派任务」。</p>
+<h4 id="子已经停了怎么办"><a href="#子已经停了怎么办" class="headerlink" title="子已经停了怎么办"></a>子已经停了怎么办</h4><p>如果目标 sub-agent 不是 <code>running</code> 状态（已经跑完返回过结果、或被 stop 过），SendMessage <strong>不走队列</strong>，而是直接调 <code>resumeAgentBackground</code>（SendMessageTool.ts:824 &#x2F; :851）——从磁盘 transcript 把子的旧上下文恢复出来、把这条消息当作<strong>新的 entry prompt</strong> 启动子的新一轮 agent loop。这种情况下子等于「被新唤起」，不是「在已有 loop 里看到一条消息」。两条路径在 SendMessage 的返回信息里有不同措辞，方便父知道走了哪条。</p>
+<hr>
+<h2 id="4-并发与结果汇总"><a href="#4-并发与结果汇总" class="headerlink" title="4. 并发与结果汇总"></a>4. 并发与结果汇总</h2><h3 id="4-1-怎么同时发起多个"><a href="#4-1-怎么同时发起多个" class="headerlink" title="4.1 怎么同时发起多个"></a>4.1 怎么同时发起多个</h3><p>不需要专门 API。<strong>父在某一轮模型回复里输出多个 <code>tool_use</code> 块</strong>就是并发。例如：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">assistant message &#123;</span><br><span class="line">  tool_use &#123; id: a, name: &#x27;Agent&#x27;, input: &#123; prompt: &#x27;调查 auth 模块&#x27;, subagent_type: &#x27;Explore&#x27; &#125; &#125;</span><br><span class="line">  tool_use &#123; id: b, name: &#x27;Agent&#x27;, input: &#123; prompt: &#x27;调查 logging 模块&#x27;, subagent_type: &#x27;Explore&#x27; &#125; &#125;</span><br><span class="line">  tool_use &#123; id: c, name: &#x27;Agent&#x27;, input: &#123; prompt: &#x27;调查 config 模块&#x27;, subagent_type: &#x27;Explore&#x27; &#125; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>模型自己在一次回复里决定输出几个 tool_use；引擎不知道也不在乎这是「故意并发」还是「就一个个调」。</p>
+<p>关于「想要并发就一次回复里发多个 tool_use」这条规则<strong>写在两个地方</strong>：</p>
+<ul>
+<li>主 system prompt（<code>prompts.ts:310</code>，<code>getUsingYourToolsSection</code>）—— 通用版：”You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel…”。这是对所有工具的通用建议</li>
+<li>AgentTool 工具描述里有两条更具体的提醒：”:248” 的 “Launch multiple agents concurrently whenever possible”、以及 “:271” 的 “If the user specifies that they want you to run agents ‘in parallel’, you MUST send a single message with multiple Agent tool use content blocks”</li>
+</ul>
+<p>两层互相加强——模型即便看不到 AgentTool 描述里的提醒（比如 coordinator 模式下的 worker），主 system prompt 那一句仍然在，仍然知道可以一次发多个 tool_use。</p>
+<h3 id="4-2-引擎层怎么并发执行"><a href="#4-2-引擎层怎么并发执行" class="headerlink" title="4.2 引擎层怎么并发执行"></a>4.2 引擎层怎么并发执行</h3><p>入口：<code>src/services/tools/StreamingToolExecutor.ts:40</code>。注释里写得清楚：</p>
+<blockquote>
+<p>Executes tools as they stream in with concurrency control.</p>
+<ul>
+<li>Concurrent-safe tools can execute in parallel with other concurrent-safe tools</li>
+<li>Non-concurrent tools must execute alone (exclusive access)</li>
+<li>Results are buffered and emitted in the order tools were received</li>
+</ul>
+</blockquote>
+<p>关键机制：</p>
+<ol>
+<li><strong>流式 dispatch</strong>：流式协议下 assistant 消息是边收边解析的。引擎每解析到一个 <code>tool_use</code> 块的 <code>content_block_stop</code> 事件，就立即调 <code>addTool()</code> 把这个工具加入执行队列——<strong>不等 assistant 消息全部流式结束</strong></li>
+<li><strong>AgentTool 是 concurrency-safe</strong>：多个 AgentTool 调用之间互不阻塞，都立即开始跑</li>
+<li><strong>结果有序</strong>：虽然子任务可能乱序完成，引擎的 buffer 保证最终拼回父 messages 的 tool_result 块<strong>按 tool_use 收到的顺序</strong>排列。模型不会看到乱序的结果对</li>
+</ol>
+<p>这意味着 sync 多 agent 并发的总耗时 ≈ 最慢那个的耗时，不是各个相加。</p>
+<h3 id="4-3-结果如何汇总"><a href="#4-3-结果如何汇总" class="headerlink" title="4.3 结果如何汇总"></a>4.3 结果如何汇总</h3><p><strong>引擎层不汇总</strong>——它只是把 N 个 tool_result 按顺序拼到一条 user message 里。「汇总」是父在<strong>下一次模型调用</strong>里看到这些 tool_result 时由模型自己做的。</p>
+<p>具体形态分两种：</p>
+<p><strong>全部 sync</strong>：N 个 AgentTool 都同步跑，引擎等齐 N 个最终文本，拼成：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">user 块: [</span><br><span class="line">  tool_result &#123; tool_use_id: a, content: &#x27;&lt;子 A 的最终文本&gt;&#x27; &#125;,</span><br><span class="line">  tool_result &#123; tool_use_id: b, content: &#x27;&lt;子 B 的最终文本&gt;&#x27; &#125;,</span><br><span class="line">  tool_result &#123; tool_use_id: c, content: &#x27;&lt;子 C 的最终文本&gt;&#x27; &#125;,</span><br><span class="line">]</span><br></pre></td></tr></table></figure>
+
+<p>父的下一轮就看到这条 user message，模型在 thinking 里 synthesize 三个结果给用户。</p>
+<p><strong>全部 async</strong>：N 个 AgentTool 都返回 <code>async_launched</code> 占位（同一回合就拼回去了，跟 sync 一样按顺序），父立刻可以做别的事。N 个子各自跑完时各自把 <code>&lt;task-notification&gt;</code> 进队列。父 <code>queryLoop</code> 下一次 <code>while</code> 迭代顶部一次性 drain 所有已完成的通知，构造成多条 user 消息块塞进 messages：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">user 块: [&lt;task-notification&gt; 子 A 完成 &lt;/task-notification&gt;]</span><br><span class="line">user 块: [&lt;task-notification&gt; 子 C 完成 &lt;/task-notification&gt;]</span><br><span class="line">（子 B 还没完成，没出现）</span><br></pre></td></tr></table></figure>
+
+<p>下下一次迭代再 drain 一次拿到子 B。也就是说<strong>多个 async agent 的结果可能分批到达</strong>，每次只能看到「目前完成了哪些」。</p>
+<p><strong>混合</strong>（部分 sync 部分 async）：sync 的那几个跟前面一样在本回合就回拼；async 的那几个走 task-notification 通路。父收到的是混合形态。</p>
+<p><strong>关键事实</strong>：「汇总」这件事<strong>永远由模型在下一次模型调用里做</strong>，不是引擎做的——引擎只负责把字符串塞进合适的 messages 位置。所以「汇总质量」取决于父 system prompt 是不是教过模型怎么合成多路结果（coordinator 的 system prompt 里大段就在讲这件事）。</p>
+<h3 id="4-4-实战注意点"><a href="#4-4-实战注意点" class="headerlink" title="4.4 实战注意点"></a>4.4 实战注意点</h3><p>这些是 AgentTool 描述（<code>src/tools/AgentTool/prompt.ts</code>）里反复教模型的事：</p>
+<ul>
+<li><strong>想并发就在一次回复里发多个</strong>——分两次回复发等于串行，每次模型调用是同步的</li>
+<li><strong>没依赖才并发</strong>——如果 B 的 prompt 要用 A 的结果，必须先等 A</li>
+<li><strong>并发多个 async 比并发多个 sync 更划算</strong>——sync 多个还是要等齐才能进下一轮；async 多个父可以立刻继续干别的，结果各自到达后再各自处理</li>
+<li><strong>fork 多路特别便宜</strong>——所有 fork 子共享父的 prompt cache 前缀（详见 §1.1），并发起 5 路 fork 远比 5 路 isolate 便宜</li>
+</ul>
+<hr>
+<h2 id="Appendix：AgentTool-的-“Writing-the-prompt”-节"><a href="#Appendix：AgentTool-的-“Writing-the-prompt”-节" class="headerlink" title="Appendix：AgentTool 的 “Writing the prompt” 节"></a>Appendix：AgentTool 的 “Writing the prompt” 节</h2><p>§2.2 说 isolate 路径下 <code>prompt</code> 字段是父 → 子之间唯一的信息通道，并提到 AgentTool 的工具描述里有一节专门教模型怎么写好这个 prompt。这一节大约 15 行（<code>src/tools/AgentTool/prompt.ts:99-113</code>，函数 <code>writingThePromptSection</code>），下面把核心内容译写出来。</p>
+<h3 id="总框架：「刚走进房间的同事」"><a href="#总框架：「刚走进房间的同事」" class="headerlink" title="总框架：「刚走进房间的同事」"></a>总框架：「刚走进房间的同事」</h3><blockquote>
+<p>Brief the agent like a smart colleague who just walked into the room — it hasn’t seen this conversation, doesn’t know what you’ve tried, doesn’t understand why this task matters.</p>
+</blockquote>
+<p>把子 agent 当成刚走进房间的聪明同事——他<strong>没看过你跟用户的对话</strong>、<strong>不知道你已经试过什么</strong>、<strong>不知道这件事为什么重要</strong>。父必须把这三件事讲清楚，子才知道该往哪走。</p>
+<p>这个比喻把 isolate 路径的根本约束讲透了：子的能力（智商、经验）跟父相当，但<strong>他完全没有共享的上下文</strong>。所以 prompt 不是「指令」，而是「briefing」——既要派活，也要交代背景。</p>
+<h3 id="5-条具体要求"><a href="#5-条具体要求" class="headerlink" title="5 条具体要求"></a>5 条具体要求</h3><ol>
+<li><strong>讲做什么、也讲为什么</strong> — 不光是任务本身，还要让子知道这个结果将用于什么。子据此判断该深挖到什么粒度</li>
+<li><strong>讲已经排除了什么</strong> — 你试过哪些路、为什么不行。避免子重复你走过的死路</li>
+<li><strong>留出判断空间</strong> — 给周围背景，让子在边界情况下能自己拍板。不要把指令收得太死，否则子遇到没预想到的情况就只能干瞪眼</li>
+<li><strong>明确输出格式 &#x2F; 长度</strong> — 想要 200 字以内的总结、想要结构化报告，就在 prompt 里直说，否则子默认会写得很详细</li>
+<li><strong>区分 lookup 和 investigation</strong><ul>
+<li>已经知道要查什么 → 直接给 exact command（”run <code>grep -r foo src/</code>“）</li>
+<li>不确定要查什么 → 把问题原样交过去（”调查 src 下哪些文件提到了 foo”）。<strong>不要预先指定步骤</strong>——如果你对问题的前提判断错了，预定的步骤也就全废了</li>
+</ul>
+</li>
+</ol>
+<h3 id="核心反模式：「Never-delegate-understanding」"><a href="#核心反模式：「Never-delegate-understanding」" class="headerlink" title="核心反模式：「Never delegate understanding」"></a>核心反模式：「Never delegate understanding」</h3><p>AgentTool prompt 里最有力的一句教训：</p>
+<blockquote>
+<p><strong>Never delegate understanding.</strong> Don’t write “based on your findings, fix the bug” or “based on the research, implement it.” Those phrases push synthesis onto the agent instead of doing it yourself.</p>
+</blockquote>
+<p>「根据你的研究结果……」这种 prompt 等于父没有自己读懂研究结果、把综合理解的活推回给子。问题在于：</p>
+<ul>
+<li>子并不知道父跟用户聊过什么，做不出真正符合用户诉求的综合</li>
+<li>如果子之前是 isolate 跑的，那「your findings」根本不在子的上下文里——子会完全摸不着头脑</li>
+<li>即便是续聊 &#x2F; fork 路径下子有这些上下文，父没自己消化就直接转手，做出来的活质量上限就是子的临场猜测</li>
+</ul>
+<p>对比：</p>
+<table>
+<thead>
+<tr>
+<th>反模式</th>
+<th>正例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>「根据研究结果修复那个 auth bug」</td>
+<td>「修复 <code>src/auth/validate.ts:42</code> 的 null pointer：Session 的 user 字段在会话过期、token 还缓存时为 undefined。在访问 <code>user.id</code> 前加 null 检查，null 时返回 401」</td>
+</tr>
+<tr>
+<td>「实现刚才讨论的方案」</td>
+<td>「在 <code>src/api/handlers.ts</code> 新增 <code>POST /refresh</code> handler，调用 <code>RefreshTokenService.rotate()</code>，复用 <code>validateRequest()</code> 中间件做认证」</td>
+</tr>
+</tbody></table>
+<p>差别不在长度，<strong>在父有没有自己读懂、然后把读懂的结果写进 prompt</strong>。</p>
+<h3 id="一句总结"><a href="#一句总结" class="headerlink" title="一句总结"></a>一句总结</h3><blockquote>
+<p>Terse command-style prompts produce shallow, generic work.</p>
+</blockquote>
+<p>简短的命令式 prompt，出来的活也是肤浅、千篇一律的。子产出的质量上限就是父 prompt 的质量上限。</p>
+<h3 id="顺带：coordinator-模式有个加强版"><a href="#顺带：coordinator-模式有个加强版" class="headerlink" title="顺带：coordinator 模式有个加强版"></a>顺带：coordinator 模式有个加强版</h3><p>coordinator 模式（默认未启用）下，主 system prompt 里专门有 “Writing Worker Prompts” 一整节（<code>src/coordinator/coordinatorMode.ts:251-336</code>），比 AgentTool 的版本长得多，多出 “synthesize findings”、”add a purpose statement”、”continue vs spawn”、好&#x2F;坏 prompt 完整对比等内容。本质是同一套思路的扩展版——一旦父被定位成纯调度者，”写好 prompt” 就成了它唯一的产出，所以要讲得更细。</p>
+<hr>
+<h2 id="Appendix：默认未启用的几种形态"><a href="#Appendix：默认未启用的几种形态" class="headerlink" title="Appendix：默认未启用的几种形态"></a>Appendix：默认未启用的几种形态</h2><p>仅做索引，不展开。</p>
+<table>
+<thead>
+<tr>
+<th>形态</th>
+<th>默认状态</th>
+<th>启用条件</th>
+<th>跟主干的关系</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>fork</strong></td>
+<td>关</td>
+<td><code>FORK_SUBAGENT</code> 编译期 flag</td>
+<td>维度一的另一选项；启用后所有 spawn 强制 async</td>
+</tr>
+<tr>
+<td><strong>coordinator</strong></td>
+<td>关</td>
+<td><code>COORDINATOR_MODE</code> flag + <code>CLAUDE_CODE_COORDINATOR_MODE</code> env</td>
+<td>维度五；把主 agent 换成「只调度」的 system prompt，跟 fork 互斥</td>
+</tr>
+<tr>
+<td><strong>teammate &#x2F; team</strong></td>
+<td>关</td>
+<td><code>agentSwarmsEnabled</code></td>
+<td>平行体系，不是 AgentTool 的派生——通过 <code>TeamCreateTool</code> 建一批长驻 teammate，跑在独立 tmux&#x2F;iTerm pane</td>
+</tr>
+<tr>
+<td><strong>remote</strong></td>
+<td>部分关</td>
+<td><code>isolation: &quot;remote&quot;</code> 参数，仅 <code>USER_TYPE === &#39;ant&#39;</code> 暴露</td>
+<td>维度四的另一选项</td>
+</tr>
+<tr>
+<td><strong>KAIROS</strong></td>
+<td>关</td>
+<td><code>KAIROS</code> flag</td>
+<td>强制所有 sub-agent async，保护长驻 assistant 的主 loop</td>
+</tr>
+</tbody></table>
+<p>每种形态的代码位置：</p>
+<ul>
+<li>fork：<code>src/tools/AgentTool/forkSubagent.ts</code>（210 行）</li>
+<li>coordinator：<code>src/coordinator/coordinatorMode.ts</code>（369 行）</li>
+<li>teammate：<code>src/utils/teammate*.ts</code> + <code>src/utils/swarm/</code>（数千行）</li>
+<li>remote：<code>src/remote/</code> + <code>src/tasks/RemoteAgentTask/</code></li>
+<li>KAIROS：散落多处，搜 <code>feature(&#39;KAIROS&#39;)</code></li>
+</ul>
+
+  </div>
+</article>
+
+
+
+        
+          <div id="footer-post-container">
+  <div id="footer-post">
+
+    <div id="nav-footer" style="display: none">
+      <ul>
+        
+          <li><a href="/">首页</a></li>
+        
+          <li><a href="/about/">关于</a></li>
+        
+          <li><a href="/archives/">归档</a></li>
+        
+          <li><a href="/travel/">旅行</a></li>
+        
+          <li><a target="_blank" rel="noopener" href="http://github.com/probberechts">项目</a></li>
+        
+      </ul>
+    </div>
+
+    
+    
+      <div id="toc-footer" style="display: none">
+        <ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-%E5%A4%9A-Agent-%E7%9A%84%E5%87%A0%E4%B8%AA%E6%AD%A3%E4%BA%A4%E7%BB%B4%E5%BA%A6"><span class="toc-text">1. 多 Agent 的几个正交维度</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-%E7%BB%B4%E5%BA%A6%E4%B8%80%EF%BC%9A%E4%B8%8A%E4%B8%8B%E6%96%87%E7%BB%A7%E6%89%BF-%E2%80%94%E2%80%94-isolate-vs-fork"><span class="toc-text">1.1 维度一：上下文继承 —— isolate vs fork</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-%E7%BB%B4%E5%BA%A6%E4%BA%8C%EF%BC%9A%E6%89%A7%E8%A1%8C%E6%97%B6%E6%9C%BA-%E2%80%94%E2%80%94-sync-vs-async"><span class="toc-text">1.2 维度二：执行时机 —— sync vs async</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-3-%E7%BB%B4%E5%BA%A6%E4%B8%89%EF%BC%9A%E5%B9%B6%E5%8F%91%E5%BA%A6-%E2%80%94%E2%80%94-%E5%8D%95%E6%AC%A1-vs-%E5%B9%B6%E5%8F%91"><span class="toc-text">1.3 维度三：并发度 —— 单次 vs 并发</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-4-%E7%BB%B4%E5%BA%A6%E5%9B%9B%EF%BC%9A%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9F%E9%9A%94%E7%A6%BB-%E2%80%94%E2%80%94-%E5%85%B1%E4%BA%AB-cwd-vs-worktree"><span class="toc-text">1.4 维度四：文件系统隔离 —— 共享 cwd vs worktree</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-5-%E7%BB%B4%E5%BA%A6%E4%BA%94%EF%BC%9A%E8%B0%83%E5%BA%A6%E5%BD%A2%E6%80%81%EF%BC%88%E9%BB%98%E8%AE%A4%E6%9C%AA%E5%BC%80%E5%90%AF%EF%BC%8C%E4%B8%80%E5%8F%A5%E8%AF%9D%EF%BC%89"><span class="toc-text">1.5 维度五：调度形态（默认未开启，一句话）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%BB%E5%B9%B2%E8%B7%AF%E5%BE%84%E6%80%BB%E7%BB%93"><span class="toc-text">主干路径总结</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-%E4%B8%80%E4%B8%AA-SubAgent-%E7%9A%84%E5%8F%82%E6%95%B0%E4%BB%8E%E5%93%AA%E9%87%8C%E6%9D%A5"><span class="toc-text">2. 一个 SubAgent 的参数从哪里来</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-System-prompt"><span class="toc-text">2.1 System prompt</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E7%94%A8%E6%88%B7%E6%B6%88%E6%81%AF%EF%BC%88messages-%E6%95%B0%E7%BB%84%EF%BC%89"><span class="toc-text">2.2 用户消息（messages 数组）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-%E5%B7%A5%E5%85%B7%E9%9B%86"><span class="toc-text">2.3 工具集</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4-%E6%A8%A1%E5%9E%8B"><span class="toc-text">2.4 模型</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-5-%E5%85%B6%E4%BB%96%E5%8F%82%E6%95%B0"><span class="toc-text">2.5 其他参数</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E5%8F%A5%E8%AF%9D%E6%80%BB%E7%BB%93"><span class="toc-text">一句话总结</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-SubAgent-%E7%9A%84%E7%BB%93%E6%9E%9C%E6%98%AF%E6%80%8E%E4%B9%88%E5%9B%9E%E4%BC%A0%E7%9A%84"><span class="toc-text">3. SubAgent 的结果是怎么回传的</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-Sync-%E8%B7%AF%E5%BE%84%EF%BC%88%E9%BB%98%E8%AE%A4%EF%BC%89"><span class="toc-text">3.1 Sync 路径（默认）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-Async-%E8%B7%AF%E5%BE%84%EF%BC%88run-in-background-true-%E6%88%96%E8%A2%AB%E5%BC%BA%E5%88%B6-async-%E6%97%B6%EF%BC%89"><span class="toc-text">3.2 Async 路径（run_in_background: true 或被强制 async 时）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-Fork%E3%80%81remote-%E8%B7%AF%E5%BE%84"><span class="toc-text">3.3 Fork、remote 路径</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-%E7%BB%AD%E8%81%8A%EF%BC%9ASendMessageTool"><span class="toc-text">3.4 续聊：SendMessageTool</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-%E5%B9%B6%E5%8F%91%E4%B8%8E%E7%BB%93%E6%9E%9C%E6%B1%87%E6%80%BB"><span class="toc-text">4. 并发与结果汇总</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E6%80%8E%E4%B9%88%E5%90%8C%E6%97%B6%E5%8F%91%E8%B5%B7%E5%A4%9A%E4%B8%AA"><span class="toc-text">4.1 怎么同时发起多个</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-%E5%BC%95%E6%93%8E%E5%B1%82%E6%80%8E%E4%B9%88%E5%B9%B6%E5%8F%91%E6%89%A7%E8%A1%8C"><span class="toc-text">4.2 引擎层怎么并发执行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-%E7%BB%93%E6%9E%9C%E5%A6%82%E4%BD%95%E6%B1%87%E6%80%BB"><span class="toc-text">4.3 结果如何汇总</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-4-%E5%AE%9E%E6%88%98%E6%B3%A8%E6%84%8F%E7%82%B9"><span class="toc-text">4.4 实战注意点</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Appendix%EF%BC%9AAgentTool-%E7%9A%84-%E2%80%9CWriting-the-prompt%E2%80%9D-%E8%8A%82"><span class="toc-text">Appendix：AgentTool 的 “Writing the prompt” 节</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%80%BB%E6%A1%86%E6%9E%B6%EF%BC%9A%E3%80%8C%E5%88%9A%E8%B5%B0%E8%BF%9B%E6%88%BF%E9%97%B4%E7%9A%84%E5%90%8C%E4%BA%8B%E3%80%8D"><span class="toc-text">总框架：「刚走进房间的同事」</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-%E6%9D%A1%E5%85%B7%E4%BD%93%E8%A6%81%E6%B1%82"><span class="toc-text">5 条具体要求</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%A0%B8%E5%BF%83%E5%8F%8D%E6%A8%A1%E5%BC%8F%EF%BC%9A%E3%80%8CNever-delegate-understanding%E3%80%8D"><span class="toc-text">核心反模式：「Never delegate understanding」</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%80%E5%8F%A5%E6%80%BB%E7%BB%93"><span class="toc-text">一句总结</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%A1%BA%E5%B8%A6%EF%BC%9Acoordinator-%E6%A8%A1%E5%BC%8F%E6%9C%89%E4%B8%AA%E5%8A%A0%E5%BC%BA%E7%89%88"><span class="toc-text">顺带：coordinator 模式有个加强版</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Appendix%EF%BC%9A%E9%BB%98%E8%AE%A4%E6%9C%AA%E5%90%AF%E7%94%A8%E7%9A%84%E5%87%A0%E7%A7%8D%E5%BD%A2%E6%80%81"><span class="toc-text">Appendix：默认未启用的几种形态</span></a></li></ol>
+      </div>
+    
+
+    <div id="share-footer" style="display: none">
+      <ul>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.facebook.com/sharer.php?u=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/"><i class="fab fa-facebook fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://twitter.com/share?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&text=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-twitter fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.linkedin.com/shareArticle?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&title=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-linkedin fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://pinterest.com/pin/create/bookmarklet/?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&is_video=false&description=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-pinterest fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" href="mailto:?subject=从源代码分析 Claude Code 多 Agent 设计&body=Check out this article: https://daghlny.github.io/2026/05/24/claude-code-multi-agent/"><i class="fa-solid fa-envelope fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://getpocket.com/save?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&title=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-get-pocket fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://reddit.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&title=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-reddit fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.stumbleupon.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&title=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-stumbleupon fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://digg.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&title=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-digg fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.tumblr.com/share/link?url=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&name=从源代码分析 Claude Code 多 Agent 设计&description="><i class="fab fa-tumblr fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://news.ycombinator.com/submitlink?u=https://daghlny.github.io/2026/05/24/claude-code-multi-agent/&t=从源代码分析 Claude Code 多 Agent 设计"><i class="fab fa-hacker-news fa-lg" aria-hidden="true"></i></a></li>
+</ul>
+
+    </div>
+
+    <div id="actions-footer">
+        <a id="menu" class="icon" href="#" onclick="$('#nav-footer').toggle();return false;"><i class="fa-solid fa-bars fa-lg" aria-hidden="true"></i> 菜单</a>
+        
+          <a id="toc" class="icon" href="#" onclick="$('#toc-footer').toggle();return false;"><i class="fa-solid fa-list fa-lg" aria-hidden="true"></i> 目录</a>
+        
+        <a id="share" class="icon" href="#" onclick="$('#share-footer').toggle();return false;"><i class="fa-solid fa-share-alt fa-lg" aria-hidden="true"></i> 分享</a>
+        <a id="top" style="display:none" class="icon" href="#" onclick="$('html, body').animate({ scrollTop: 0 }, 'fast');"><i class="fa-solid fa-chevron-up fa-lg" aria-hidden="true"></i> 返回顶部</a>
+    </div>
+
+  </div>
+</div>
+
+        
+        <footer id="footer">
+  <div class="footer-left">
+    Copyright &copy;
+    
+    
+    2016-2026
+    Yinuo Li
+  </div>
+  <div class="footer-right">
+    <nav>
+      <ul>
+        <!--
+       --><li><a href="/">首页</a></li><!--
+     --><!--
+       --><li><a href="/about/">关于</a></li><!--
+     --><!--
+       --><li><a href="/archives/">归档</a></li><!--
+     --><!--
+       --><li><a href="/travel/">旅行</a></li><!--
+     --><!--
+       --><li><a target="_blank" rel="noopener" href="http://github.com/probberechts">项目</a></li><!--
+     -->
+      </ul>
+    </nav>
+  </div>
+</footer>
+
+    </div>
+    <!-- styles -->
+
+
+
+  <link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" onload="this.onload=null;this.rel='stylesheet'"/>
+
+
+    <!-- jquery -->
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js" crossorigin="anonymous"></script>
+
+
+
+
+<!-- clipboard -->
+
+  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/2.0.7/clipboard.min.js" crossorigin="anonymous"></script>
+  
+  <script type="text/javascript">
+  $(function() {
+    // copy-btn HTML
+    var btn = "<span class=\"btn-copy tooltipped tooltipped-sw\" aria-label=\"复制到粘贴板！\">";
+    btn += '<i class="fa-regular fa-clone"></i>';
+    btn += '</span>';
+    // mount it!
+    $(".highlight table").before(btn);
+    var clip = new ClipboardJS('.btn-copy', {
+      text: function(trigger) {
+        return Array.from(trigger.nextElementSibling.querySelectorAll('.code')).reduce((str,it)=>str+it.innerText+'\n','')
+      }
+    });
+    clip.on('success', function(e) {
+      e.trigger.setAttribute('aria-label', "复制成功！");
+      e.clearSelection();
+    })
+  })
+  </script>
+
+
+<script src="/js/main.js"></script>
+
+<!-- search -->
+
+<!-- Baidu Analytics -->
+
+<!-- Cloudflare Analytics -->
+
+<!-- Disqus Comments -->
+
+<!-- utterances Comments -->
+
+</body>
+</html>
