@@ -3,8 +3,8 @@
 ## Source: https://github.com/hexojs/hexo/
 
 # Site
-title: Yinuo's Blog
-subtitle: 'Welcome to my personal blog'
+title: Ashitaka's Blog
+subtitle: 'Welcome to my blog'
 description: 'I like to travel, playing video games and some new staff.'
 keywords: blog, hexo, tech
 author: Yinuo Li
@@ -107,8 +107,3 @@ deploy:
   type: git
   repo: https://github.com/daghlny/daghlny.github.io
   branch: main
-
-social_links:
-  -
-    icon: steam
-    link: https://steamcommunity.com/id/masamifans/
