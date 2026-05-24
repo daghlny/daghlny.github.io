@@ -425,14 +425,14 @@ body table {
 }
 body th {
   padding: 8px;
-  border-bottom: 1px dashed #666;
+  border: 1px solid #666;
   color: #383838;
   font-weight: bold;
   font-size: 14px;
 }
 body td {
-  padding: 0 8px;
-  border-bottom: none;
+  padding: 6px 8px;
+  border: 1px solid #666;
 }
 @font-face {
   font-style: normal;
@@ -572,7 +572,7 @@ body {
   }
 }
 .max-width {
-  max-width: 48rem;
+  max-width: 56rem;
 }
 @media (max-width: 480px) {
   .px3 {
