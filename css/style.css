@@ -1092,6 +1092,18 @@ body {
 .project-list .project-item p {
   display: inline;
 }
+.post-back {
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.post-back a {
+  color: #8c8c8c;
+  text-decoration: none;
+  border-bottom: none;
+}
+.post-back a:hover {
+  color: #2bbc8a;
+}
 article header .posttitle {
   margin-top: 0;
   margin-bottom: 0;
