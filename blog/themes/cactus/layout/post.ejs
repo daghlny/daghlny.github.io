@@ -1,3 +1,6 @@
+<nav class="post-back">
+  <a href="<%- url_for('/') %>">&larr; 返回首页</a>
+</nav>
 <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
   <header>
     <%- partial('_partial/post/title', { post: page, index: false, class_name: 'posttitle' }) %>
