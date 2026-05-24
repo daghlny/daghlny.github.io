@@ -400,7 +400,7 @@ body abbr {
 body ul,
 body ol,
 body dl {
-  line-height: 1.725;
+  line-height: 1.75;
 }
 body ul ul,
 body ol ul,
@@ -419,7 +419,7 @@ body table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
   overflow: auto;
   display: block;
 }
@@ -428,7 +428,7 @@ body th {
   border-bottom: 1px dashed #666;
   color: #383838;
   font-weight: bold;
-  font-size: 13px;
+  font-size: 14px;
 }
 body td {
   padding: 0 8px;
@@ -481,9 +481,9 @@ body {
   background-color: #fff;
   color: #383838;
   font-weight: 400;
-  font-size: 14px;
-  font-family: "Menlo", "Meslo LG", monospace;
-  line-height: 1.725;
+  font-size: 15px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  line-height: 1.75;
   text-rendering: geometricPrecision;
   -moz-osx-font-smoothing: grayscale;
   -webkit-font-smoothing: antialiased;
@@ -828,45 +828,49 @@ body {
   display: block;
   margin: 0;
 }
-#header-post #toc {
-  float: right;
-  clear: both;
-  overflow: auto;
-  margin-top: 1rem;
-  padding-right: 2rem;
-  max-width: 20em;
-  max-height: calc(95vh - 7rem);
-  text-align: right;
+#post-toc {
+  position: fixed;
+  top: 2rem;
+  left: 2rem;
+  overflow-y: auto;
+  width: 18em;
+  max-height: calc(100vh - 4rem);
+  padding: 0.5rem 1rem 0.5rem 0;
+  text-align: left;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  z-index: 50;
 }
-#header-post #toc a:hover {
+#post-toc ol {
+  margin: 0;
+  padding-left: 1.2em;
+  list-style: none;
+}
+#post-toc > ol {
+  padding-left: 0;
+}
+#post-toc a {
+  background: none;
+  color: #383838;
+  text-decoration: none;
+}
+#post-toc a:hover {
   color: #d480aa;
 }
-#header-post #toc .toc-level-1 > .toc-link {
-  display: none;
-}
-#header-post #toc .toc-level-2 {
+#post-toc .toc-level-1 {
   color: #383838;
-  font-size: 0.8rem;
+  font-weight: 600;
+  margin-top: 0.4em;
 }
-#header-post #toc .toc-level-2:before {
-  color: #2bbc8a;
-  content: "#";
-}
-#header-post #toc .toc-level-3 {
+#post-toc .toc-level-2 {
   color: #666;
-  font-size: 0.7rem;
+  font-weight: 400;
 }
-#header-post #toc .toc-level-4 {
-  color: #525252;
-  font-size: 0.4rem;
+#post-toc .toc-level-3 {
+  color: #5c5c5c;
+  font-size: 0.92em;
 }
-#header-post #toc .toc-level-5 {
-  display: none;
-}
-#header-post #toc .toc-level-6 {
-  display: none;
-}
-#header-post #toc .toc-number {
+#post-toc .toc-number {
   display: none;
 }
 @media screen and (max-width: 500px) {
@@ -882,8 +886,8 @@ body {
     display: none;
   }
 }
-@media screen and (max-width: 1199px) {
-  #header-post #toc {
+@media screen and (max-width: 1399px) {
+  #post-toc {
     display: none;
   }
 }
@@ -1415,9 +1419,9 @@ article .content .caption {
   color: #fff;
   font-display: swap;
   font-weight: 400;
-  font-size: 11.200000000000001px;
-  font-family: "Menlo", "Meslo LG", monospace;
-  line-height: 1.725;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  line-height: 1.75;
   text-rendering: geometricPrecision;
   text-align: center;
   word-wrap: break-word;
@@ -1582,7 +1586,7 @@ pre {
   border: 1px dotted #666;
   border-radius: 4px;
   font-size: 13px;
-  font-family: "Menlo", "Meslo LG", monospace;
+  font-family: "SF Mono", "Menlo", "Meslo LG", Consolas, monospace;
   line-height: 22px;
   -webkit-border-radius: 4px;
 }
@@ -1592,10 +1596,12 @@ pre code {
   border: none;
 }
 code {
-  padding: 0 5px;
-  border: 1px dotted #666;
-  border-radius: 2px;
-  -webkit-border-radius: 2px;
+  padding: 0.15em 0.4em;
+  background: #fafafa;
+  border-radius: 3px;
+  font-family: "SF Mono", "Menlo", "Meslo LG", Consolas, monospace;
+  font-size: 0.92em;
+  -webkit-border-radius: 3px;
 }
 .highlight {
   overflow-x: auto;
@@ -1603,7 +1609,7 @@ code {
   padding: 10px 15px;
   border-radius: 4px;
   background: #fafafa;
-  font-family: "Menlo", "Meslo LG", monospace;
+  font-family: "SF Mono", "Menlo", "Meslo LG", Consolas, monospace;
   -webkit-border-radius: 4px;
 }
 .highlight figcaption {

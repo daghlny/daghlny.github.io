@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+    <!-- so meta -->
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="HandheldFriendly" content="True">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
+    <meta name="description" content="本文基于 src&#x2F; 源码梳理 Claude Code 如何在「一次提问内」、「同一会话多轮」、「跨会话长期」三个时间尺度上管理上下文。 阅读视角是正常的外部用户——也就是从 npm 装的标准 Claude Code、没改 feature flag、没启用 Anthropic 内部实验配置的那种使用方式。源码里有不少受 GrowthBook 实验或 USER_TYPE &#x3D;&#x3D;&#x3D; &#39;ant&amp;#3">
+<meta property="og:type" content="article">
+<meta property="og:title" content="从源代码分析 Claude Code 记忆系统设计">
+<meta property="og:url" content="https://daghlny.github.io/2026/05/24/claude-code-memory-system/index.html">
+<meta property="og:site_name" content="Yinuo&#39;s Blog">
+<meta property="og:description" content="本文基于 src&#x2F; 源码梳理 Claude Code 如何在「一次提问内」、「同一会话多轮」、「跨会话长期」三个时间尺度上管理上下文。 阅读视角是正常的外部用户——也就是从 npm 装的标准 Claude Code、没改 feature flag、没启用 Anthropic 内部实验配置的那种使用方式。源码里有不少受 GrowthBook 实验或 USER_TYPE &#x3D;&#x3D;&#x3D; &#39;ant&amp;#3">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2026-05-24T02:00:00.000Z">
+<meta property="article:modified_time" content="2026-05-24T09:55:19.730Z">
+<meta property="article:author" content="Yinuo Li">
+<meta property="article:tag" content="AI">
+<meta property="article:tag" content="Claude Code">
+<meta property="article:tag" content="源码分析">
+<meta name="twitter:card" content="summary">
+    
+    
+      
+        
+          <link rel="shortcut icon" href="/images/favicon.ico">
+        
+      
+      
+        
+          <link rel="icon" type="image/png" href="/images/favicon-192x192.png" sizes="192x192">
+        
+      
+      
+        
+          <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
+        
+      
+    
+    <!-- title -->
+    <title>从源代码分析 Claude Code 记忆系统设计</title>
+    <!-- async scripts -->
+    <!-- Google Analytics -->
+
+
+    <!-- Umami Analytics -->
+
+
+    <!-- styles -->
+    
+<link rel="stylesheet" href="/css/style.css">
+
+    <!-- persian styles -->
+    
+    <!-- rss -->
+    
+    
+	<!-- mathjax -->
+	
+<meta name="generator" content="Hexo 8.1.1"></head>
+
+<body class="max-width mx-auto px3 ltr">
+    
+      <div id="header-post">
+  <a id="menu-icon" href="#" aria-label="目录"><i class="fa-solid fa-bars fa-lg"></i></a>
+  <a id="menu-icon-tablet" href="#" aria-label="目录"><i class="fa-solid fa-bars fa-lg"></i></a>
+  <a id="top-icon-tablet" href="#" aria-label="顶部" onclick="$('html, body').animate({ scrollTop: 0 }, 'fast');" style="display:none;"><i class="fa-solid fa-chevron-up fa-lg"></i></a>
+  <span id="menu">
+    <span id="nav">
+      <ul>
+        <!--
+       --><li><a href="/">首页</a></li><!--
+     --><!--
+       --><li><a href="/about/">关于</a></li><!--
+     --><!--
+       --><li><a href="/archives/">归档</a></li><!--
+     --><!--
+       --><li><a href="/travel/">旅行</a></li><!--
+     --><!--
+       --><li><a target="_blank" rel="noopener" href="http://github.com/probberechts">项目</a></li><!--
+     -->
+      </ul>
+    </span>
+    <br/>
+    <span id="actions">
+      <ul>
+        
+        <li><a class="icon" aria-label="上一篇" href="/2026/05/24/claude-code-read-tool/"><i class="fa-solid fa-chevron-left" aria-hidden="true" onmouseover="$('#i-prev').toggle();" onmouseout="$('#i-prev').toggle();"></i></a></li>
+        
+        
+        <li><a class="icon" aria-label="下一篇" href="/2025/11/23/First-blog-from-yinuo/"><i class="fa-solid fa-chevron-right" aria-hidden="true" onmouseover="$('#i-next').toggle();" onmouseout="$('#i-next').toggle();"></i></a></li>
+        
+        <li><a class="icon" aria-label="返回顶部" href="#" onclick="$('html, body').animate({ scrollTop: 0 }, 'fast');"><i class="fa-solid fa-chevron-up" aria-hidden="true" onmouseover="$('#i-top').toggle();" onmouseout="$('#i-top').toggle();"></i></a></li>
+        <li><a class="icon" aria-label="分享文章" href="#"><i class="fa-solid fa-share-alt" aria-hidden="true" onmouseover="$('#i-share').toggle();" onmouseout="$('#i-share').toggle();" onclick="$('#share').toggle();return false;"></i></a></li>
+      </ul>
+      <span id="i-prev" class="info" style="display:none;">上一篇</span>
+      <span id="i-next" class="info" style="display:none;">下一篇</span>
+      <span id="i-top" class="info" style="display:none;">返回顶部</span>
+      <span id="i-share" class="info" style="display:none;">分享文章</span>
+    </span>
+    <br/>
+    <div id="share" style="display: none">
+      <ul>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.facebook.com/sharer.php?u=https://daghlny.github.io/2026/05/24/claude-code-memory-system/"><i class="fab fa-facebook " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://twitter.com/share?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&text=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-twitter " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.linkedin.com/shareArticle?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&title=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-linkedin " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://pinterest.com/pin/create/bookmarklet/?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&is_video=false&description=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-pinterest " aria-hidden="true"></i></a></li>
+  <li><a class="icon" href="mailto:?subject=从源代码分析 Claude Code 记忆系统设计&body=Check out this article: https://daghlny.github.io/2026/05/24/claude-code-memory-system/"><i class="fa-solid fa-envelope " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://getpocket.com/save?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&title=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-get-pocket " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://reddit.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&title=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-reddit " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.stumbleupon.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&title=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-stumbleupon " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://digg.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&title=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-digg " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.tumblr.com/share/link?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&name=从源代码分析 Claude Code 记忆系统设计&description="><i class="fab fa-tumblr " aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://news.ycombinator.com/submitlink?u=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&t=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-hacker-news " aria-hidden="true"></i></a></li>
+</ul>
+
+    </div>
+  </span>
+</div>
+
+
+  <div id="post-toc">
+    <ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#0-%E5%89%8D%E7%BD%AE%E6%A6%82%E5%BF%B5"><span class="toc-text">0. 前置概念</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#0-1-Session%EF%BC%88%E4%BC%9A%E8%AF%9D%EF%BC%89"><span class="toc-text">0.1 Session（会话）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#0-2-Trajectory%EF%BC%88%E8%BD%A8%E8%BF%B9%EF%BC%89"><span class="toc-text">0.2 Trajectory（轨迹）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#0-3-Anthropic-Messages-API-%E7%9A%84%E5%8F%82%E6%95%B0%E7%BB%93%E6%9E%84"><span class="toc-text">0.3 Anthropic Messages API 的参数结构</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#1-%E9%A6%96%E6%AC%A1%E6%9E%84%E5%BB%BA-system-prompt"><span class="toc-text">1. 首次构建 system prompt</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-cache-control-%E7%9A%84%E5%87%86%E7%A1%AE%E8%AF%AD%E4%B9%89"><span class="toc-text">1.1 cache_control 的准确语义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-%E7%A4%BA%E4%BE%8B%EF%BC%9Ablock-%E7%BB%93%E6%9E%84%E9%AA%A8%E6%9E%B6"><span class="toc-text">1.2 示例：block 结构骨架</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-%E5%90%8C%E4%B8%80-trajectory-%E5%86%85%E7%9A%84%E5%86%85%E5%AE%B9%E4%BF%9D%E7%95%99"><span class="toc-text">2. 同一 trajectory 内的内容保留</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-%E5%A4%9A%E8%BD%AE%E5%AF%B9%E8%AF%9D%EF%BC%88%E7%94%A8%E6%88%B7%E7%BB%A7%E7%BB%AD%E8%BF%BD%E9%97%AE%EF%BC%89"><span class="toc-text">3. 多轮对话（用户继续追问）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-%E7%9F%AD%E6%9C%9F%E6%B6%88%E6%81%AF%E7%9A%84%E5%AD%98%E5%82%A8"><span class="toc-text">4. 短期消息的存储</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-JSONL-%E6%96%87%E4%BB%B6%E6%A0%B7%E6%9C%AC"><span class="toc-text">4.1 JSONL 文件样本</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-%E4%B8%8A%E4%B8%8B%E6%96%87%E5%8E%8B%E7%BC%A9"><span class="toc-text">5. 上下文压缩</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-%E9%95%BF%E6%9C%9F%E8%AE%B0%E5%BF%86"><span class="toc-text">6. 长期记忆</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-CLAUDE-md%EF%BC%88%E4%BA%BA%E5%86%99%E3%80%81%E9%A1%B9%E7%9B%AE%E7%BA%A7%EF%BC%89"><span class="toc-text">6.1 CLAUDE.md（人写、项目级）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-memdir-Auto-Memory%EF%BC%88%E6%A8%A1%E5%9E%8B%E5%86%99%E3%80%81user-%C3%97-project%EF%BC%89"><span class="toc-text">6.2 memdir &#x2F; Auto Memory（模型写、user × project）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-Skills%EF%BC%88%E5%8F%AF%E8%B0%83%E7%94%A8%E5%B7%A5%E4%BD%9C%E6%B5%81%EF%BC%89"><span class="toc-text">6.3 Skills（可调用工作流）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%89%E8%80%85%E5%AF%B9%E6%AF%94"><span class="toc-text">三者对比</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E5%9B%BE%E6%80%BB%E8%A7%88"><span class="toc-text">一图总览</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Appendix"><span class="toc-text">Appendix</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#A-cacheScope-global-%E7%9A%84%E8%B7%A8%E7%94%A8%E6%88%B7%E5%85%B1%E4%BA%AB%E7%BB%86%E8%8A%82"><span class="toc-text">A. cacheScope&#x3D;&#39;global&#39; 的跨用户共享细节</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#B-Thinking-%E5%9D%97%E7%9A%84%E5%A4%84%E7%90%86%E7%BB%86%E8%8A%82"><span class="toc-text">B. Thinking 块的处理细节</span></a></li></ol></li></ol>
+  </div>
+
+
+    
+    <div class="content index py4 ">
+        
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+  <header>
+    
+    <h1 class="posttitle p-name" itemprop="name headline">
+        从源代码分析 Claude Code 记忆系统设计
+    </h1>
+
+
+
+    <div class="meta">
+      <span class="author p-author h-card" itemprop="author" itemscope itemtype="http://schema.org/Person">
+        <span class="p-name" itemprop="name">Yinuo Li</span>
+      </span>
+      
+    <div class="postdate">
+      
+        <time datetime="2026-05-24T02:00:00.000Z" class="dt-published" itemprop="datePublished">2026-05-24</time>
+        
+      
+    </div>
+
+
+      
+
+      
+    <div class="article-tag">
+        <i class="fa-solid fa-tag"></i>
+        <a class="p-category" href="/tags/AI/" rel="tag">AI</a>, <a class="p-category" href="/tags/Claude-Code/" rel="tag">Claude Code</a>, <a class="p-category" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a>
+    </div>
+
+
+    </div>
+  </header>
+  
+
+  <div class="content e-content" itemprop="articleBody">
+    <p>本文基于 <code>src/</code> 源码梳理 Claude Code 如何在「一次提问内」、「同一会话多轮」、「跨会话长期」三个时间尺度上管理上下文。</p>
+<p>阅读视角是<strong>正常的外部用户</strong>——也就是从 npm 装的标准 Claude Code、没改 feature flag、没启用 Anthropic 内部实验配置的那种使用方式。源码里有不少受 GrowthBook 实验或 <code>USER_TYPE === &#39;ant&#39;</code> 门槛保护的内部路径，本文只在必要时旁注、不当作主流程介绍。</p>
+<p>记忆按生命周期分三层：</p>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>载体</th>
+<th>维护者</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>瞬时（同一 trajectory 内）</strong></td>
+<td><code>messages</code> 数组累积</td>
+<td>引擎</td>
+<td>工具结果、思考块</td>
+</tr>
+<tr>
+<td><strong>短期（同一会话）</strong></td>
+<td>内存 <code>mutableMessages</code> + 落盘 JSONL</td>
+<td>引擎</td>
+<td>整轮 transcript</td>
+</tr>
+<tr>
+<td><strong>长期（跨会话）</strong></td>
+<td>CLAUDE.md &#x2F; memdir &#x2F; skills</td>
+<td>人 + 模型</td>
+<td>项目规范、用户偏好</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="0-前置概念"><a href="#0-前置概念" class="headerlink" title="0. 前置概念"></a>0. 前置概念</h2><p>进入正题前，先约定三个贯穿全文的概念。</p>
+<h3 id="0-1-Session（会话）"><a href="#0-1-Session（会话）" class="headerlink" title="0.1 Session（会话）"></a>0.1 Session（会话）</h3><blockquote>
+<p><strong>从启动 Claude Code 到退出之间的整段时间</strong>——一个 <code>sessionId</code>（src&#x2F;utils&#x2F;sessionStorage.ts 里随处可见的 <code>getSessionId()</code>）唯一标识它。</p>
+</blockquote>
+<p>Claude Code 内部统一用 <code>session</code> &#x2F; <code>sessionId</code>（出现 1200+ 次），不用 <code>conversation</code>&#x2F;<code>conversationId</code>（仅 14 处，且多在 IDE bridge 协议这种外部接口）。本文档统一沿用源码术语，叫<strong>会话 &#x2F; session</strong>。</p>
+<p>一个 session 内：</p>
+<ul>
+<li><code>QueryEngine.mutableMessages</code> 持续累积，只增不减（除非压缩）</li>
+<li>transcript 落盘到 <code>~/.claude/projects/&lt;sanitized-cwd&gt;/&lt;sessionId&gt;.jsonl</code></li>
+<li>包含 1 到 N 个 trajectory（每次用户提问启动一个）</li>
+</ul>
+<p>三个层级的嵌套关系：</p>
+<table>
+<thead>
+<tr>
+<th>术语</th>
+<th>范围</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>API call</strong></td>
+<td>单次 <code>messages.create</code> 调用，由一次 <code>stop_reason</code> 终结</td>
+</tr>
+<tr>
+<td><strong>Trajectory</strong></td>
+<td>一次 user→assistant 完整应答，对应 <code>queryLoop</code> 一次完整迭代，可能包含多个 API call</td>
+</tr>
+<tr>
+<td><strong>Session</strong></td>
+<td>整个会话生命周期，同一个 <code>sessionId</code> 下所有 trajectory</td>
+</tr>
+</tbody></table>
+<h3 id="0-2-Trajectory（轨迹）"><a href="#0-2-Trajectory（轨迹）" class="headerlink" title="0.2 Trajectory（轨迹）"></a>0.2 Trajectory（轨迹）</h3><blockquote>
+<p><strong>从用户一次提问到 assistant 给出最终文本答复之间，模型走过的完整路径</strong>——可能包含 N 次 API 往返（model→tool→model→tool→…→model）。</p>
+</blockquote>
+<p>源码注释（src&#x2F;query.ts:158）的精确定义：”a single turn, or if that turn includes a tool_use block then also its subsequent tool_result and the following assistant message”。</p>
+<p>例：用户问”看看 src 下有什么文件”→ 模型 thinking + 调 Glob → 模型 thinking + 调 Read → 模型给出最终文本，这一整段是 <strong>1 个 trajectory、3 次 API call</strong>。Thinking 块的”必须保留”硬性要求就是限定在 trajectory 范围内。</p>
+<h3 id="0-3-Anthropic-Messages-API-的参数结构"><a href="#0-3-Anthropic-Messages-API-的参数结构" class="headerlink" title="0.3 Anthropic Messages API 的参数结构"></a>0.3 Anthropic Messages API 的参数结构</h3><p>Claude Code 通过 <code>anthropic.beta.messages.create({stream: true})</code> 调用模型（src&#x2F;services&#x2F;api&#x2F;claude.ts:1697-1728）。</p>
+<h4 id="一份真实请求的-JSON-形态"><a href="#一份真实请求的-JSON-形态" class="headerlink" title="一份真实请求的 JSON 形态"></a>一份真实请求的 JSON 形态</h4><p>下面是一次 trajectory 中第二次 API call（已经调过一次 Glob、要继续调 Read）时实际发出的请求长什么样。所有值都是会真出现的形态：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;model&quot;</span><span class="punctuation">:</span> <span class="string">&quot;claude-opus-4-6&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;max_tokens&quot;</span><span class="punctuation">:</span> <span class="number">32000</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;stream&quot;</span><span class="punctuation">:</span> <span class="literal"><span class="keyword">true</span></span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;temperature&quot;</span><span class="punctuation">:</span> <span class="number">1</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;thinking&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;enabled&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;budget_tokens&quot;</span><span class="punctuation">:</span> <span class="number">16000</span></span><br><span class="line">  <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;system&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;text&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;text&quot;</span><span class="punctuation">:</span> <span class="string">&quot;You are an interactive agent that helps users with software engineering tasks. ...\n# System\n - All text you output outside of tool use ...\n# Doing tasks\n ...\n# Using your tools\n ...&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;cache_control&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;ephemeral&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;scope&quot;</span><span class="punctuation">:</span> <span class="string">&quot;global&quot;</span> <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;text&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;text&quot;</span><span class="punctuation">:</span> <span class="string">&quot;# Session-specific guidance\n ...\n# auto memory\n...\n# Environment\nPrimary working directory: /Users/jane/myproject\nIs a git repository: true\nPlatform: darwin\n...\ngitStatus: On branch main\nnothing to commit, working tree clean&quot;</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;tools&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Read&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;description&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Reads a file from the local filesystem...&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;input_schema&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;object&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;properties&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">          <span class="attr">&quot;file_path&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;string&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;description&quot;</span><span class="punctuation">:</span> <span class="string">&quot;The absolute path to the file to read&quot;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">          <span class="attr">&quot;offset&quot;</span><span class="punctuation">:</span>    <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;integer&quot;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">          <span class="attr">&quot;limit&quot;</span><span class="punctuation">:</span>     <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;integer&quot;</span> <span class="punctuation">&#125;</span></span><br><span class="line">        <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;required&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="string">&quot;file_path&quot;</span><span class="punctuation">]</span></span><br><span class="line">      <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Glob&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;description&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Fast file pattern matching tool...&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;input_schema&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;object&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;properties&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;pattern&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;string&quot;</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span> <span class="attr">&quot;required&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="string">&quot;pattern&quot;</span><span class="punctuation">]</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;cache_control&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;ephemeral&quot;</span> <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;tool_choice&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;auto&quot;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;messages&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;role&quot;</span><span class="punctuation">:</span> <span class="string">&quot;user&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;content&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;text&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;text&quot;</span><span class="punctuation">:</span> <span class="string">&quot;&lt;system-reminder&gt;\nAs you answer the user&#x27;s questions, you can use the following context:\n# claudeMd\nContents of /Users/jane/.claude/CLAUDE.md ...\n# currentDate\nToday&#x27;s date is 2026-05-06.\n\nIMPORTANT: this context may or may not be relevant ...\n&lt;/system-reminder&gt;&quot;</span></span><br><span class="line">      <span class="punctuation">&#125;</span><span class="punctuation">]</span></span><br><span class="line">    <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;role&quot;</span><span class="punctuation">:</span> <span class="string">&quot;user&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;content&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;text&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;text&quot;</span><span class="punctuation">:</span> <span class="string">&quot;看看 src 下的代码结构&quot;</span> <span class="punctuation">&#125;</span><span class="punctuation">]</span></span><br><span class="line">    <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;role&quot;</span><span class="punctuation">:</span> <span class="string">&quot;assistant&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;content&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">        <span class="punctuation">&#123;</span></span><br><span class="line">          <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;thinking&quot;</span><span class="punctuation">,</span></span><br><span class="line">          <span class="attr">&quot;thinking&quot;</span><span class="punctuation">:</span> <span class="string">&quot;The user wants to know the code structure under src/. Let me start by listing files with Glob.&quot;</span><span class="punctuation">,</span></span><br><span class="line">          <span class="attr">&quot;signature&quot;</span><span class="punctuation">:</span> <span class="string">&quot;ErUBCkYIBBgCIkBnQHc...&quot;</span></span><br><span class="line">        <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="punctuation">&#123;</span></span><br><span class="line">          <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;tool_use&quot;</span><span class="punctuation">,</span></span><br><span class="line">          <span class="attr">&quot;id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;toolu_01AbCdEf&quot;</span><span class="punctuation">,</span></span><br><span class="line">          <span class="attr">&quot;name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Glob&quot;</span><span class="punctuation">,</span></span><br><span class="line">          <span class="attr">&quot;input&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;pattern&quot;</span><span class="punctuation">:</span> <span class="string">&quot;src/**/*.ts&quot;</span> <span class="punctuation">&#125;</span></span><br><span class="line">        <span class="punctuation">&#125;</span></span><br><span class="line">      <span class="punctuation">]</span></span><br><span class="line">    <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;role&quot;</span><span class="punctuation">:</span> <span class="string">&quot;user&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;content&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;tool_result&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;tool_use_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;toolu_01AbCdEf&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;content&quot;</span><span class="punctuation">:</span> <span class="string">&quot;src/index.ts\nsrc/QueryEngine.ts\nsrc/query.ts\nsrc/tools.ts\n... (132 more)&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;cache_control&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;ephemeral&quot;</span> <span class="punctuation">&#125;</span></span><br><span class="line">      <span class="punctuation">&#125;</span><span class="punctuation">]</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;betas&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="string">&quot;prompt-caching-2024-07-31&quot;</span><span class="punctuation">,</span> <span class="string">&quot;extended-cache-ttl-2025-04-11&quot;</span><span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;metadata&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;user_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;anon_abc123&quot;</span> <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>字段速查：</p>
+<ul>
+<li><code>model</code> — 主模型 ID</li>
+<li><code>max_tokens</code> — 本次输出上限（thinking + text + tool_use 总额）</li>
+<li><code>stream: true</code> — 走 SSE，返回 <code>message_start / content_block_start / *_delta / *_stop / message_stop</code> 事件流</li>
+<li><code>thinking</code> — 顶层配置（<code>enabled</code> &#x2F; <code>disabled</code> &#x2F; <code>adaptive</code>），开了之后 assistant 的 content 才会出现 thinking 块</li>
+<li><code>system</code> — TextBlock 数组（不是字符串、不是 messages[0]），每块可独立挂 <code>cache_control</code></li>
+<li><code>tools</code> — 工具定义（name + description + JSON Schema），可在末位挂 <code>cache_control</code> 把整个 tools 列表纳入缓存</li>
+<li><code>tool_choice</code> — <code>{type: &quot;auto&quot;}</code> 让模型自己决定调不调；可强制 <code>{type: &quot;tool&quot;, name: &quot;Read&quot;}</code></li>
+<li><code>messages</code> — 只有 user &#x2F; assistant 两种角色，content 是块数组</li>
+<li><code>betas</code> — 启用的 beta header（prompt cache、extended TTL、context management 等）</li>
+<li><code>metadata</code> — 计费与审计字段</li>
+</ul>
+<h4 id="和老式-chat-completions-的关键差异"><a href="#和老式-chat-completions-的关键差异" class="headerlink" title="和老式 chat_completions 的关键差异"></a>和老式 chat_completions 的关键差异</h4><table>
+<thead>
+<tr>
+<th>OpenAI chat_completions</th>
+<th>Anthropic Messages</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>system 是 <code>messages[0]</code>（role: system）</td>
+<td>system 是<strong>顶层独立字段</strong></td>
+</tr>
+<tr>
+<td>messages 角色 4 种：system&#x2F;user&#x2F;assistant&#x2F;tool</td>
+<td>messages 角色<strong>只有</strong> user 和 assistant</td>
+</tr>
+<tr>
+<td>content 通常是字符串</td>
+<td>content 是<strong>块数组</strong></td>
+</tr>
+<tr>
+<td>tool 结果用 <code>role: &quot;tool&quot;</code> 单独消息</td>
+<td>tool 结果用 <code>role: &quot;user&quot;</code>，content 含 <code>tool_result</code> 块</td>
+</tr>
+<tr>
+<td>不支持 prompt cache 标记</td>
+<td>content 块上挂 <code>cache_control</code></td>
+</tr>
+<tr>
+<td>thinking 不是一类消息</td>
+<td>thinking 是顶层配置 + 消息里有 <code>thinking</code>&#x2F;<code>redacted_thinking</code> 块</td>
+</tr>
+</tbody></table>
+<h4 id="内容块类型"><a href="#内容块类型" class="headerlink" title="内容块类型"></a>内容块类型</h4><figure class="highlight ts"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">content</span>: [</span><br><span class="line">  &#123; <span class="attr">type</span>: <span class="string">&quot;text&quot;</span>, <span class="attr">text</span>: <span class="string">&quot;...&quot;</span>, <span class="attr">cache_control</span>?: &#123;...&#125; &#125;,</span><br><span class="line">  &#123; <span class="attr">type</span>: <span class="string">&quot;image&quot;</span>, <span class="attr">source</span>: &#123;...&#125; &#125;,</span><br><span class="line">  &#123; <span class="attr">type</span>: <span class="string">&quot;tool_use&quot;</span>, <span class="attr">id</span>: <span class="string">&quot;toolu_xxx&quot;</span>, <span class="attr">name</span>: <span class="string">&quot;Read&quot;</span>, <span class="attr">input</span>: &#123;...&#125; &#125;,        <span class="comment">// assistant 才有</span></span><br><span class="line">  &#123; <span class="attr">type</span>: <span class="string">&quot;tool_result&quot;</span>, <span class="attr">tool_use_id</span>: <span class="string">&quot;toolu_xxx&quot;</span>, <span class="attr">content</span>: <span class="string">&quot;...&quot;</span> &#125;,         <span class="comment">// user 才有</span></span><br><span class="line">  &#123; <span class="attr">type</span>: <span class="string">&quot;thinking&quot;</span>, <span class="attr">thinking</span>: <span class="string">&quot;...&quot;</span>, <span class="attr">signature</span>: <span class="string">&quot;...&quot;</span> &#125;,                   <span class="comment">// assistant 才有，明文</span></span><br><span class="line">  &#123; <span class="attr">type</span>: <span class="string">&quot;redacted_thinking&quot;</span>, <span class="attr">data</span>: <span class="string">&quot;...&quot;</span> &#125;,                                <span class="comment">// assistant 才有，加密 blob</span></span><br><span class="line">  &#123; <span class="attr">type</span>: <span class="string">&quot;document&quot;</span>, <span class="attr">source</span>: &#123;...&#125; &#125;,</span><br><span class="line">]</span><br></pre></td></tr></table></figure>
+
+<p><code>thinking</code> 是模型可读的明文思考 + 签名；<code>redacted_thinking</code> 是同样的思考被 Anthropic 安全分类器加密后的不透明 blob。<strong>两者结构上对客户端处理一致</strong>：原样保留、原样回传，只是 UI 是否展示文字给用户不同。删改任一会破坏签名链，下次请求 400。</p>
+<h4 id="一次-trajectory-的典型-messages"><a href="#一次-trajectory-的典型-messages" class="headerlink" title="一次 trajectory 的典型 messages"></a>一次 trajectory 的典型 messages</h4><figure class="highlight ts"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line">[</span><br><span class="line">  <span class="comment">// prependUserContext 注入的 meta（CLAUDE.md + currentDate）</span></span><br><span class="line">  &#123; <span class="attr">role</span>: <span class="string">&quot;user&quot;</span>, <span class="attr">content</span>: [&#123;<span class="attr">type</span>: <span class="string">&quot;text&quot;</span>, <span class="attr">text</span>: <span class="string">&quot;&lt;system-reminder&gt;...&lt;/system-reminder&gt;&quot;</span>&#125;] &#125;,</span><br><span class="line"></span><br><span class="line">  <span class="comment">// 用户真实提问</span></span><br><span class="line">  &#123; <span class="attr">role</span>: <span class="string">&quot;user&quot;</span>, <span class="attr">content</span>: [&#123;<span class="attr">type</span>: <span class="string">&quot;text&quot;</span>, <span class="attr">text</span>: <span class="string">&quot;看看 src 下的代码结构&quot;</span>&#125;] &#125;,</span><br><span class="line"></span><br><span class="line">  <span class="comment">// assistant 第一轮</span></span><br><span class="line">  &#123; <span class="attr">role</span>: <span class="string">&quot;assistant&quot;</span>, <span class="attr">content</span>: [</span><br><span class="line">    &#123; <span class="attr">type</span>: <span class="string">&quot;thinking&quot;</span>, <span class="attr">thinking</span>: <span class="string">&quot;...&quot;</span>, <span class="attr">signature</span>: <span class="string">&quot;...&quot;</span> &#125;,</span><br><span class="line">    &#123; <span class="attr">type</span>: <span class="string">&quot;tool_use&quot;</span>, <span class="attr">id</span>: <span class="string">&quot;toolu_01&quot;</span>, <span class="attr">name</span>: <span class="string">&quot;Glob&quot;</span>, <span class="attr">input</span>: &#123;<span class="attr">pattern</span>: <span class="string">&quot;src/**&quot;</span>&#125; &#125;,</span><br><span class="line">  ]&#125;,</span><br><span class="line"></span><br><span class="line">  <span class="comment">// 工具结果（注意还是 role: user）</span></span><br><span class="line">  &#123; <span class="attr">role</span>: <span class="string">&quot;user&quot;</span>, <span class="attr">content</span>: [</span><br><span class="line">    &#123; <span class="attr">type</span>: <span class="string">&quot;tool_result&quot;</span>, <span class="attr">tool_use_id</span>: <span class="string">&quot;toolu_01&quot;</span>, <span class="attr">content</span>: <span class="string">&quot;src/index.ts\n...&quot;</span> &#125;,</span><br><span class="line">  ]&#125;,</span><br><span class="line"></span><br><span class="line">  <span class="comment">// assistant 继续 / 终结</span></span><br><span class="line">  &#123; <span class="attr">role</span>: <span class="string">&quot;assistant&quot;</span>, <span class="attr">content</span>: [</span><br><span class="line">    &#123; <span class="attr">type</span>: <span class="string">&quot;thinking&quot;</span>, ... &#125;,</span><br><span class="line">    &#123; <span class="attr">type</span>: <span class="string">&quot;text&quot;</span>, <span class="attr">text</span>: <span class="string">&quot;我看完了...&quot;</span> &#125;,</span><br><span class="line">  ]&#125;,</span><br><span class="line">]</span><br></pre></td></tr></table></figure>
+
+<p>记住三条：</p>
+<ol>
+<li><strong>system 不在 messages 里</strong>，在顶层</li>
+<li><strong>没有 role: “tool”</strong>，工具结果以 <code>tool_result</code> 块塞进 user 消息</li>
+<li><strong>stream: true 不返回单个 BetaMessage</strong>，而是 <code>message_start / content_block_start / *_delta / *_stop / message_stop</code> 事件流。Claude Code 自己消费原始 SSE，不用 SDK 的 <code>BetaMessageStream</code> 封装（后者解 partial JSON 是 O(n²)）</li>
+</ol>
+<hr>
+<h2 id="1-首次构建-system-prompt"><a href="#1-首次构建-system-prompt" class="headerlink" title="1. 首次构建 system prompt"></a>1. 首次构建 system prompt</h2><p>每次会话启动后用户发出第一条消息时，Claude Code 都会现场拼一份 system prompt。这一节看它是怎么拼出来的、为什么要拼成数组形式，以及服务端的 prompt cache 怎么决定哪些段落能被复用。</p>
+<p>入口：<code>src/QueryEngine.ts</code> 的 <code>submitMessage()</code>。</p>
+<p>system prompt <strong>不是一段拼接好的字符串，而是一个 block 数组</strong>，便于按 cacheScope 分段；后续会被 <code>splitSysPromptPrefix</code> 折叠为最多 3-4 个粗块发送，其中只在 1-2 个块上实际挂 <code>cache_control</code>（详见 1.1）。<code>fetchSystemPromptParts()</code> 负责拉齐三大块：</p>
+<ul>
+<li><strong>defaultSystemPrompt</strong>（数组）：进 API <code>system</code> 字段。包含基础指令、<code># System</code>、<code># Doing tasks</code>、<code># Executing actions</code>、<code># Using your tools</code>、<code># Tone and style</code>、<code># Output efficiency</code>、env info、<code># Session-specific guidance</code>、auto memory 教程、MCP&#x2F;scratchpad&#x2F;语言&#x2F;输出风格等所有”指令性”内容。工具的 schema 走 API 的 <code>tools</code> 字段，但工具的”何时用、怎么用”的指南就是写在这里</li>
+<li><strong>systemContext</strong>（dict）：通过 <code>appendSystemContext</code> 拼成 <code>key: value</code> 字符串<strong>追加到 system prompt 数组末尾</strong>。当前实际只有 <code>gitStatus</code>（会话开始一次性采样的 git 快照）和可选的 <code>cacheBreaker</code></li>
+<li><strong>userContext</strong>（dict）：<strong>不进 system prompt</strong>！通过 <code>prependUserContext</code> 包成一条带 <code>&lt;system-reminder&gt;</code> 的 user message，插在所有真实 user 消息<strong>之前</strong>。包含 <code>claudeMd</code>（四层级联拼起来的 CLAUDE.md 全文）和 <code>currentDate</code></li>
+</ul>
+<p>之后再追加可选的 memory mechanics prompt（教模型怎么读写 memdir）和 <code>--append-system-prompt</code> 用户追加段。block 数组中嵌入了一个哨兵 <code>SYSTEM_PROMPT_DYNAMIC_BOUNDARY</code>：边界<strong>之前</strong>是跨用户都能复用的稳定内容（cacheScope&#x3D;<code>global</code>，跨用户共享池细节见 <a href="#a-cachescopeglobal-%E7%9A%84%E8%B7%A8%E7%94%A8%E6%88%B7%E5%85%B1%E4%BA%AB%E7%BB%86%E8%8A%82">Appendix A</a>），边界<strong>之后</strong>是用户&#x2F;会话特定信息（cwd、git 快照、当前日期等）—— 注意”会话特定”指的是<strong>跨会话才会变，单个会话内一旦确定就冻结</strong>，因此这部分仍然能跨轮命中缓存。</p>
+<p>构建好后，原始 block 数组并不是直接发出去的，而是被 <code>splitSysPromptPrefix</code> 折叠成最多 3-4 个粗块（attribution &#x2F; sysprompt prefix &#x2F; 静态主体 &#x2F; 会话变量），其中只有少数几块挂 <code>cache_control</code>，原因见下面 1.1。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">flowchart LR</span><br><span class="line">    U[用户消息] --&gt; SM[submitMessage]</span><br><span class="line">    SM --&gt; FP[fetchSystemPromptParts]</span><br><span class="line">    FP --&gt; A[defaultSystemPrompt&lt;br/&gt;基础指令+env info+工具用法]</span><br><span class="line">    FP --&gt; B[userContext&lt;br/&gt;CLAUDE.md+MEMORY.md+currentDate]</span><br><span class="line">    FP --&gt; C[systemContext&lt;br/&gt;gitStatus]</span><br><span class="line">    A --&gt; ASM[asSystemPrompt 多block数组&lt;br/&gt;含 DYNAMIC_BOUNDARY 哨兵]</span><br><span class="line">    C --&gt; ASM</span><br><span class="line">    MM[memory mechanics] --&gt; ASM</span><br><span class="line">    AP[--append-system-prompt] --&gt; ASM</span><br><span class="line">    ASM --&gt; SP[splitSysPromptPrefix&lt;br/&gt;折叠为3-4个粗块]</span><br><span class="line">    SP --&gt; CC[只在静态主体块挂 cache_control]</span><br><span class="line">    B -.包成 system-reminder&lt;br/&gt;插在 messages 首位.-&gt; API[Anthropic API]</span><br><span class="line">    CC --&gt; API</span><br></pre></td></tr></table></figure>
+
+<h3 id="1-1-cache-control-的准确语义"><a href="#1-1-cache-control-的准确语义" class="headerlink" title="1.1 cache_control 的准确语义"></a>1.1 cache_control 的准确语义</h3><p><code>cache_control</code> 不是开关，而是<strong>断点标记</strong>(下文可能缩写”断点”)：一次模型请求按 <code>tools → system → messages</code> 顺序累积前缀，服务端在标记处对累积前缀做哈希、凭哈希查&#x2F;写缓存。<br><code>cache_control</code> 的展开形式是 <code>{type: &quot;ephemeral&quot;, ttl?: &quot;1h&quot;, scope?: &quot;global&quot;}</code>（默认 5 分钟 TTL）。</p>
+<blockquote>
+<p>关于段落顺序：Anthropic 官方文档定义的拼接顺序是 <strong>tools → system → messages</strong>（tools 在前，因为它通常最稳定）。这条是 API 契约。</p>
+</blockquote>
+<p>关键事实：</p>
+<ol>
+<li><strong>命中由服务端前缀比对决定，不是客户端控制的</strong>。客户端只能选”在哪里设断点”，决定哪些前缀长度可被复用。挂在 list 字段某个 element 上 &#x3D; “以此 element 为终点，从请求开头到这里的整段累积前缀建一个缓存条目”，跨字段累计、不只是 list 内部。</li>
+<li><strong>断点之后的内容不进缓存，但不会被丢弃</strong>——按全价 input token 计费、正常参与注意力。</li>
+<li><strong>API 上限 4 个断点</strong>，所以不能给每个原始 block 都标。Claude Code 的分配是：<ul>
+<li>tools 末位占 1（把 tools schema 纳入缓存）</li>
+<li>system 静态主体占 1（scope&#x3D;<code>global</code> 表示跨用户共享，详见 <a href="#a-cachescopeglobal-%E7%9A%84%E8%B7%A8%E7%94%A8%E6%88%B7%E5%85%B1%E4%BA%AB%E7%BB%86%E8%8A%82">Appendix A</a>）</li>
+<li>messages 末尾占 1（最新一条 user&#x2F;tool_result，把缓存边界推到对话当前末尾）</li>
+<li>留 1 个机动名额</li>
+</ul>
+</li>
+<li><strong>写比读贵</strong>：cache 写入约普通 input 的 1.25 倍，读取约 0.1 倍。所以并不是断点越多越好——只在能反复命中的位置标。</li>
+<li>计费时服务端在 <code>usage</code> 里返回 <code>cache_creation_input_tokens</code>（写入量）和 <code>cache_read_input_tokens</code>（命中量），客户端据此审计。</li>
+</ol>
+<p>为什么 Claude Code 把 boundary 放在 system prompt 中段？因为 <code>cacheScope=&#39;global&#39;</code> 的前缀可被<strong>跨用户共享命中</strong>（不只跨自己的会话）。把所有”跨用户都一样”的内容（基础指令、工具用法手册）挪到 boundary 之前打全局断点，能让冷启动的新会话第一轮就吃到别人写好的缓存。具体共享条件（什么样的用户算”同池”、版本变更如何 invalidate 缓存）见 <a href="#a-cachescopeglobal-%E7%9A%84%E8%B7%A8%E7%94%A8%E6%88%B7%E5%85%B1%E4%BA%AB%E7%BB%86%E8%8A%82">Appendix A</a>。</p>
+<blockquote>
+<p><strong>公开性提示</strong>：本节中”前缀模型 &#x2F; 断点 &#x2F; 最长匹配命中 &#x2F; 4 个上限 &#x2F; TTL &#x2F; 段落顺序” 都是 Anthropic 官方 prompt caching 文档里写明的 API 契约。”哈希算法是 Blake2b” 这种实现细节来自 Claude Code 内部源码注释（src&#x2F;constants&#x2F;prompts.ts:347），可作直觉参考但<strong>不是官方承诺</strong>——不要让生产代码依赖具体哈希函数或字节级布局。</p>
+</blockquote>
+<h3 id="1-2-示例：block-结构骨架"><a href="#1-2-示例：block-结构骨架" class="headerlink" title="1.2 示例：block 结构骨架"></a>1.2 示例：block 结构骨架</h3><p>只展示<strong>逻辑 block 顺序和职责</strong>，每块内容真实样貌看 1.1 提到的 <code>getSystemPrompt()</code>。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">system 字段（按 cacheScope 分两段）:</span><br><span class="line">─ 静态段（cacheScope=&#x27;global&#x27;，跨用户共享） ─────────────</span><br><span class="line">  Block 1   getSimpleIntroSection         身份 + URL 安全声明</span><br><span class="line">  Block 2   getSimpleSystemSection        # System：输出/权限/system-reminder 规则</span><br><span class="line">  Block 3   getSimpleDoingTasksSection    # Doing tasks：编码原则</span><br><span class="line">  Block 4   getActionsSection             # Executing actions with care</span><br><span class="line">  Block 5   getUsingYourToolsSection      # Using your tools</span><br><span class="line">  Block 6   getSimpleToneAndStyleSection  # Tone and style</span><br><span class="line">  Block 7   getOutputEfficiencySection    # Output efficiency</span><br><span class="line">─ ⬇ 哨兵 SYSTEM_PROMPT_DYNAMIC_BOUNDARY（拼接时去掉、不发送） ─</span><br><span class="line">─ 会话变量段（cacheScope=null，会话内冻结） ──────────────</span><br><span class="line">  Block 8   getSessionSpecificGuidanceSection   # Session-specific guidance</span><br><span class="line">  Block 9   loadMemoryPrompt                    # auto memory 教程（仅指导写法；MEMORY.md 内容走 messages[0]）</span><br><span class="line">  Block 10  computeSimpleEnvInfo                # Environment（cwd/git/平台/模型 ID）</span><br><span class="line">  Block 11  MCP 服务器指引 / scratchpad 用法 / 旧工具结果清理（FRC = Function Result Clearing）/ 工具结果总结约定</span><br><span class="line">  Block 12  appendSystemContext                 gitStatus: &lt;一次性快照&gt;</span><br><span class="line"></span><br><span class="line">messages 字段:</span><br><span class="line">  msg[0]    prependUserContext 注入的 meta（isMeta=true）</span><br><span class="line">            &lt;system-reminder&gt;</span><br><span class="line">              # claudeMd</span><br><span class="line">              &lt;四层级联拼起来的所有 CLAUDE.md + MEMORY.md 内容&gt;</span><br><span class="line">              # currentDate</span><br><span class="line">              Today&#x27;s date is 2026-05-06.</span><br><span class="line">            &lt;/system-reminder&gt;</span><br><span class="line">  msg[1]    真实 user 消息：&quot;帮我看看 src 下的代码结构&quot;</span><br></pre></td></tr></table></figure>
+
+<p>发出去前 <code>splitSysPromptPrefix</code> 会把 12 个逻辑 block <strong>折叠成最多 4 个粗块</strong>：attribution header &#x2F; sysprompt prefix &#x2F; 静态主体合并（1-7） &#x2F; 会话变量合并（8-12）。只有静态主体那块挂 <code>cache_control={scope:&#39;global&#39;}</code>。</p>
+<p><strong>三个易看漏的点</strong>：</p>
+<ul>
+<li><strong>CLAUDE.md 不在 system 里、在 messages[0]</strong>——因为它因项目而异且可能很长，挂在 messages 段能进入末位 cache_control 的覆盖范围</li>
+<li><strong>gitStatus 在 system 末尾</strong>但会话内冻结，不破坏跨轮缓存</li>
+<li><strong>env info 在 boundary 之后</strong>——cwd 跨会话会变但会话内不变 → 跨轮可命中、跨会话不命中</li>
+</ul>
+<hr>
+<h2 id="2-同一-trajectory-内的内容保留"><a href="#2-同一-trajectory-内的内容保留" class="headerlink" title="2. 同一 trajectory 内的内容保留"></a>2. 同一 trajectory 内的内容保留</h2><p>system prompt 拼好之后，下一个问题是：用户的一次提问触发了多次 model→tool→model 往返时，引擎在两次模型调用之间是怎么累积消息的？这一节就关注这个 trajectory 内部循环。</p>
+<p>入口：<code>src/query.ts</code> 的 <code>queryLoop</code>（一个 <code>while (true)</code> 的 async generator，一次完整迭代对应一个 trajectory）。</p>
+<p>一次用户提问可能触发 N 次 API call（model→tool→model→tool→…→model）。在 trajectory 内部<strong>只追加、不删除</strong>：</p>
+<ul>
+<li>每次 streaming 结束后，assistant 的 <strong>thinking、redacted_thinking、text、tool_use</strong> 块全部完整压入 <code>assistantMessages</code></li>
+<li>每个 <code>tool_use</code> 触发的 <code>tool_result</code>（可能被 <code>maxResultSizeChars</code> 截断）按到达顺序累入 <code>toolResults</code>，作为一条 user 消息块</li>
+<li>进入下一次 API call 时，新 messages &#x3D; <code>[...messagesForQuery, ...assistantMessages, ...toolResults]</code></li>
+<li>最后一条 user 消息（即最新的工具结果块）上挂 <code>cache_control</code>，把 cache 边界一直推到本次 API call 末尾，下一次调用就能命中前面所有内容</li>
+</ul>
+<p>关于 thinking 块<strong>跨 trajectory 怎么处理、为什么用户看不见、和 DeepSeek 等 reasoning model 策略的对比</strong>——这些是独立话题，整理在 <a href="#b-thinking-%E5%9D%97%E7%9A%84%E5%A4%84%E7%90%86%E7%BB%86%E8%8A%82">Appendix B</a>。一句话先说结论：Claude Code 默认跨 trajectory 也保留 thinking 块，且默认让用户在 UI 上看不见。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">sequenceDiagram</span><br><span class="line">    participant L as queryLoop (一次 trajectory)</span><br><span class="line">    participant API as Anthropic API</span><br><span class="line">    participant T as 工具执行器</span><br><span class="line"></span><br><span class="line">    L-&gt;&gt;API: API call #1: messages = [history 含历史 thinking]</span><br><span class="line">    API--&gt;&gt;L: stream: thinking + tool_use</span><br><span class="line">    L-&gt;&gt;L: assistantMessages.push(完整assistant块)</span><br><span class="line">    L-&gt;&gt;T: 执行 tool_use</span><br><span class="line">    T--&gt;&gt;L: tool_result (可能截断)</span><br><span class="line">    L-&gt;&gt;L: toolResults.push(user块)</span><br><span class="line">    L-&gt;&gt;L: messages = [...history, ...assistantMessages, ...toolResults]&lt;br/&gt;给最后一条挂 cache_control</span><br><span class="line">    L-&gt;&gt;API: API call #2: 命中 cache</span><br><span class="line">    API--&gt;&gt;L: stream: 仅 text (stop_reason=&quot;end_turn&quot;)</span><br><span class="line">    L--&gt;&gt;L: trajectory 结束 (thinking 块仍留在 mutableMessages)</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="3-多轮对话（用户继续追问）"><a href="#3-多轮对话（用户继续追问）" class="headerlink" title="3. 多轮对话（用户继续追问）"></a>3. 多轮对话（用户继续追问）</h2><p>第 2 节看的是单个 trajectory；这一节扩到 session 维度——用户在同一会话里连问三五次，引擎是怎么把上一轮的整条 trajectory 接进新一轮的。重点是缓存命中率，因为这是 agent 场景下最关键的成本控制项。</p>
+<p><code>QueryEngine</code> 实例持有一个 <code>mutableMessages</code> 字段，整个会话期间<strong>只增不减</strong>（除非触发压缩）。每次新的用户提问只是往尾巴追加一条 user 消息，再启动一次 <code>queryLoop</code>。</p>
+<p>但 system prompt <strong>每轮都重新构建一次</strong>——常态下内容<strong>逐字节一致</strong>，但有几个明确定义的”会变”路径需要点出：</p>
+<ul>
+<li><strong>跨用户稳定部分</strong>（基础指令、工具用法）：boundary 之前，scope&#x3D;<code>global</code>，跨用户都能命中（共享池定义见 <a href="#a-cachescopeglobal-%E7%9A%84%E8%B7%A8%E7%94%A8%E6%88%B7%E5%85%B1%E4%BA%AB%E7%BB%86%E8%8A%82">Appendix A</a>）</li>
+<li><strong>会话特定部分</strong>（cwd、git 快照、CLAUDE.md&#x2F;MEMORY.md、模型 ID、日期）：boundary 之后，<strong>会话开始时一次性采样并冻结</strong>——<code>getUserContext</code>&#x2F;<code>getSystemContext</code> 都被 <code>memoize</code> 包过（src&#x2F;context.ts:116&#x2F;155），整个会话生命周期内重复调用拿到同一个对象。git status 注释明确写过 “this status is a snapshot in time, and will not update during the conversation”</li>
+<li><strong>常态下</strong> system prompt 在第 N 轮和第 N+1 轮<strong>字节完全一致</strong>，加上历史 messages 是上一轮的严格超集 → <strong>从 tools 一直到上一轮最末尾的 tool_result，整个累积前缀都能跨轮命中缓存</strong>，唯一不命中的是本轮新增的尾巴</li>
+<li><code>discoveredSkillNames</code> 之类的”本轮发现”集合在 <code>submitMessage</code> 入口被重置；轮序号 <code>turnCounter</code> 递增（仅用于内部追踪，不进 prompt）</li>
+</ul>
+<h4 id="例外：会话内-system-prompt-真正会变的场景"><a href="#例外：会话内-system-prompt-真正会变的场景" class="headerlink" title="例外：会话内 system prompt 真正会变的场景"></a>例外：会话内 system prompt 真正会变的场景</h4><p>源码里有两类<strong>故意不缓存</strong>的写法，承认了少数变化路径：</p>
+<ol>
+<li><strong>MCP server 中途连&#x2F;断</strong>（src&#x2F;constants&#x2F;prompts.ts:513-520）：mcp_instructions block 用 <code>DANGEROUS_uncachedSystemPromptSection</code> 包装，每轮都重新计算。注释原话：”MCP servers connect&#x2F;disconnect between turns”。当用户中途 <code>/mcp</code> 连了新服务器，下一轮 system prompt 这块就变 → 后面所有 cache breakpoint 全 miss</li>
+<li><strong>手动 cache breaker</strong>（src&#x2F;context.ts:29-33）：<code>setSystemPromptInjection()</code> 显式清掉 <code>getUserContext</code> 和 <code>getSystemContext</code> 的 memoize 缓存，并把一段 <code>[CACHE_BREAKER: ...]</code> 注入 systemContext。这是 ant-only 的内部 feature flag（BREAK_CACHE_COMMAND），生产用户基本不会触发</li>
+</ol>
+<p>除此之外（feature flag 中途翻转、<code>/output-style</code> 切换风格等也理论可能影响）都属于<strong>罕见路径</strong>——对绝大多数会话来说，system prompt 字节流就是字面意义上的”一次冻结、整会话不变”。</p>
+<p>每条消息都带 <code>uuid</code> 与 <code>parentUuid</code>，形成一条单向链表，便于 transcript 回放和 compact 边界跨越。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">flowchart TD</span><br><span class="line">    Q1[用户提问1] --&gt; SM1[submitMessage]</span><br><span class="line">    SM1 --&gt; ML1[append到 mutableMessages]</span><br><span class="line">    ML1 --&gt; SP1[重建 system prompt&lt;br/&gt;会话变量首次采样并冻结]</span><br><span class="line">    SP1 --&gt; QL1[queryLoop]</span><br><span class="line">    QL1 --&gt; R1[结果累积进 mutableMessages&lt;br/&gt;末尾挂 cache_control]</span><br><span class="line"></span><br><span class="line">    Q2[用户提问2] --&gt; SM2[submitMessage]</span><br><span class="line">    R1 --&gt; SM2</span><br><span class="line">    SM2 --&gt; ML2[继续append&lt;br/&gt;整个历史保留]</span><br><span class="line">    ML2 --&gt; SP2[重建 system prompt&lt;br/&gt;字节与上轮完全一致]</span><br><span class="line">    SP2 --&gt; QL2[queryLoop&lt;br/&gt;整个旧前缀命中cache]</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="4-短期消息的存储"><a href="#4-短期消息的存储" class="headerlink" title="4. 短期消息的存储"></a>4. 短期消息的存储</h2><p>前面三节关注的是<strong>模型当下看到什么</strong>；这一节看的是<strong>会话产生的所有消息怎么落地</strong>——既要给当前会话用，也要支持事后回放、resume、跨 compact 边界回溯。</p>
+<p>入口：<code>src/utils/sessionStorage.ts</code>。<strong>双层存储</strong>：</p>
+<ul>
+<li><strong>内存层</strong>：<code>QueryEngine.mutableMessages</code>（给模型用的 <code>Message[]</code>）</li>
+<li><strong>磁盘层</strong>：JSONL 落盘到 <code>~/.claude/projects/&lt;sanitized-cwd&gt;/&lt;sessionId&gt;.jsonl</code>，每条消息一行</li>
+</ul>
+<p>落盘记录（<code>TranscriptMessage</code>）字段比给模型的消息<strong>多一层会话元数据</strong>：</p>
+<ul>
+<li>内容：<code>type</code>、<code>message</code>&#x2F;<code>content</code>、<code>uuid</code></li>
+<li>链：<code>parentUuid</code>、<code>logicalParentUuid</code>（跨 compact 边界用）</li>
+<li>会话：<code>sessionId</code>、<code>cwd</code>、<code>gitBranch</code>、<code>timestamp</code>、<code>version</code></li>
+<li>来源：<code>userType</code>、<code>isSidechain</code>（是否 subagent 侧链）、<code>agentId</code>、<code>agentName</code>、<code>promptId</code>（关联 OpenTelemetry &#x2F; OTel 追踪 ID）</li>
+</ul>
+<p>写入是<strong>及时追加</strong>：每收到一条就 <code>appendEntry</code>，并通过内存里的 UUID 缓存去重，避免重复落盘。一些只用于 UI 状态的消息（如 progress）会被 <code>isTranscriptMessage()</code> 类型守卫过滤掉，不入磁盘。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">flowchart LR</span><br><span class="line">    M[新消息] --&gt; ME[mutableMessages&lt;br/&gt;内存数组]</span><br><span class="line">    ME --&gt; RT[recordTranscript]</span><br><span class="line">    RT --&gt; CK&#123;UUID 已记录?&#125;</span><br><span class="line">    CK --&gt;|是| SKIP[跳过]</span><br><span class="line">    CK --&gt;|否| FT&#123;isTranscriptMessage?&#125;</span><br><span class="line">    FT --&gt;|否 progress等| SKIP</span><br><span class="line">    FT --&gt;|是| AP[appendEntry 追加一行]</span><br><span class="line">    AP --&gt; JSONL[(~/.claude/projects/&amp;lt;cwd&amp;gt;/&amp;lt;sid&amp;gt;.jsonl)]</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-1-JSONL-文件样本"><a href="#4-1-JSONL-文件样本" class="headerlink" title="4.1 JSONL 文件样本"></a>4.1 JSONL 文件样本</h3><p>用户问”列出 src 文件”、模型调一次 Glob 给出答复，落盘大致长这样（每行一条记录，为方便阅读这里换行展开）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">&#123;&quot;type&quot;:&quot;user&quot;,&quot;uuid&quot;:&quot;a1b2c3d4-...&quot;,&quot;parentUuid&quot;:null,&quot;sessionId&quot;:&quot;01HXY...&quot;,&quot;cwd&quot;:&quot;/Users/jane/myproject&quot;,&quot;gitBranch&quot;:&quot;main&quot;,&quot;version&quot;:&quot;1.0.42&quot;,&quot;timestamp&quot;:&quot;2026-05-06T08:30:11.123Z&quot;,&quot;userType&quot;:&quot;external&quot;,&quot;isSidechain&quot;:false,&quot;promptId&quot;:&quot;prm_xxx&quot;,&quot;message&quot;:&#123;&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:&quot;列出 src 文件&quot;&#125;&#125;</span><br><span class="line">&#123;&quot;type&quot;:&quot;assistant&quot;,&quot;uuid&quot;:&quot;b2c3d4e5-...&quot;,&quot;parentUuid&quot;:&quot;a1b2c3d4-...&quot;,&quot;sessionId&quot;:&quot;01HXY...&quot;,&quot;cwd&quot;:&quot;/Users/jane/myproject&quot;,&quot;gitBranch&quot;:&quot;main&quot;,&quot;version&quot;:&quot;1.0.42&quot;,&quot;timestamp&quot;:&quot;2026-05-06T08:30:12.456Z&quot;,&quot;isSidechain&quot;:false,&quot;message&quot;:&#123;&quot;role&quot;:&quot;assistant&quot;,&quot;content&quot;:[&#123;&quot;type&quot;:&quot;thinking&quot;,&quot;thinking&quot;:&quot;...&quot;,&quot;signature&quot;:&quot;ErU...&quot;&#125;,&#123;&quot;type&quot;:&quot;tool_use&quot;,&quot;id&quot;:&quot;toolu_01&quot;,&quot;name&quot;:&quot;Glob&quot;,&quot;input&quot;:&#123;&quot;pattern&quot;:&quot;src/**&quot;&#125;&#125;]&#125;&#125;</span><br><span class="line">&#123;&quot;type&quot;:&quot;user&quot;,&quot;uuid&quot;:&quot;c3d4e5f6-...&quot;,&quot;parentUuid&quot;:&quot;b2c3d4e5-...&quot;,&quot;sessionId&quot;:&quot;01HXY...&quot;,&quot;cwd&quot;:&quot;/Users/jane/myproject&quot;,&quot;gitBranch&quot;:&quot;main&quot;,&quot;version&quot;:&quot;1.0.42&quot;,&quot;timestamp&quot;:&quot;2026-05-06T08:30:12.789Z&quot;,&quot;isSidechain&quot;:false,&quot;message&quot;:&#123;&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:[&#123;&quot;type&quot;:&quot;tool_result&quot;,&quot;tool_use_id&quot;:&quot;toolu_01&quot;,&quot;content&quot;:&quot;src/index.ts\nsrc/QueryEngine.ts\n...&quot;&#125;]&#125;&#125;</span><br><span class="line">&#123;&quot;type&quot;:&quot;assistant&quot;,&quot;uuid&quot;:&quot;d4e5f6g7-...&quot;,&quot;parentUuid&quot;:&quot;c3d4e5f6-...&quot;,&quot;sessionId&quot;:&quot;01HXY...&quot;,&quot;cwd&quot;:&quot;/Users/jane/myproject&quot;,&quot;gitBranch&quot;:&quot;main&quot;,&quot;version&quot;:&quot;1.0.42&quot;,&quot;timestamp&quot;:&quot;2026-05-06T08:30:14.012Z&quot;,&quot;isSidechain&quot;:false,&quot;message&quot;:&#123;&quot;role&quot;:&quot;assistant&quot;,&quot;content&quot;:[&#123;&quot;type&quot;:&quot;text&quot;,&quot;text&quot;:&quot;src 下主要有这几个文件: ...&quot;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>要点：</p>
+<ul>
+<li>每行一个独立 JSON 对象，<strong>无逗号、无外层数组</strong>——纯 JSONL，可以 <code>tail -f</code> 实时追</li>
+<li><code>parentUuid</code> 链：第 1 条 <code>null</code>（会话起点）→ 后续每条指向上一条</li>
+<li>同一 trajectory 4 条记录<strong>共享 sessionId、cwd、gitBranch、version</strong>，但每条都重复存一份（方便单行解析、不依赖上下文）</li>
+<li><code>tool_result</code> 是 <code>role: &quot;user&quot;</code>，但 <code>parentUuid</code> 指向上一条 assistant，形成”assistant 调工具 → user 块装结果”的因果链</li>
+</ul>
+<hr>
+<h2 id="5-上下文压缩"><a href="#5-上下文压缩" class="headerlink" title="5. 上下文压缩"></a>5. 上下文压缩</h2><p>会话拉得越长，messages 越长，迟早会顶到 context window 上限。这一节看 Claude Code 怎么用三种不同力度的”压缩”机制把会话从悬崖边拉回来——其中两种是常态运行，一种是真出事时的兜底。</p>
+<p>入口：<code>src/services/compact/</code>。共<strong>三条独立路径</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>路径</th>
+<th>触发</th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>手动 <code>/compact [指令]</code></strong></td>
+<td>斜杠命令</td>
+<td>模型生成结构化总结，可带自定义指令</td>
+</tr>
+<tr>
+<td><strong>自动 auto-compact</strong></td>
+<td>token 用量超阈值（context window − 13K buffer，再往前 20K 处会先出黄色 warning）</td>
+<td>同上但无自定义指令；可被环境变量 <code>DISABLE_AUTO_COMPACT</code> 关闭；连续失败 3 次熔断</td>
+</tr>
+<tr>
+<td><strong>prompt-too-long 应急</strong></td>
+<td>API 返回会话过长错误</td>
+<td>不调模型，直接剥离尾部消息（reactive）或丢弃头部最旧 round（最多 3 次重试）</td>
+</tr>
+</tbody></table>
+<p>前两条都会发起一次<strong>fork 的 agent 调用</strong>，让模型按 9 段结构化模板（用户主要意图、关键概念、文件与代码、错误修复、问题解决、所有用户消息、待处理任务、当前工作、下一步）写一份 <code>&lt;analysis&gt;</code> + <code>&lt;summary&gt;</code>。回写后 messages 形态变为：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[boundary marker, 总结消息, 保留的最近若干条原始消息, 重新注入的 attachments, session-start hook 输出]</span><br></pre></td></tr></table></figure>
+
+<p><code>boundary marker</code> 是一条 <code>SystemCompactBoundaryMessage</code>，记录压缩前 token 数和已发现工具集，是 compact 前后的”接缝”。压缩后还会跑 <code>runPostCompactCleanup()</code>，清掉 file-read 缓存和 sentSkillNames，让模型在新上下文里重新读关键文件。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">flowchart TD</span><br><span class="line">    subgraph 触发</span><br><span class="line">        U1[/compact 命令] --&gt; M[手动路径]</span><br><span class="line">        TK[token 超阈值] --&gt; A[自动路径]</span><br><span class="line">        ER[API: too long] --&gt; R[应急路径]</span><br><span class="line">    end</span><br><span class="line"></span><br><span class="line">    M --&gt; CC[compactConversation&lt;br/&gt;fork agent 调用]</span><br><span class="line">    A --&gt; CC</span><br><span class="line">    CC --&gt; SUM[模型生成 9段结构化总结]</span><br><span class="line">    SUM --&gt; BM[buildPostCompactMessages]</span><br><span class="line">    BM --&gt; NEW[boundary marker&lt;br/&gt;+ 总结消息&lt;br/&gt;+ 最近N条原文&lt;br/&gt;+ attachments&lt;br/&gt;+ hook输出]</span><br><span class="line"></span><br><span class="line">    R --&gt; RC&#123;reactive 可用?&#125;</span><br><span class="line">    RC --&gt;|是| TAIL[剥离尾部重试]</span><br><span class="line">    RC --&gt;|否| HEAD[丢弃头部最旧 round&lt;br/&gt;最多3次]</span><br><span class="line">    HEAD --&gt; FAIL[仍失败 → 报错让用户回退几条]</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="6-长期记忆"><a href="#6-长期记忆" class="headerlink" title="6. 长期记忆"></a>6. 长期记忆</h2><p>前 5 节都在讨论会话生命周期内的事；这一节才是真正”跨会话”的部分——下次启动 Claude Code 时，哪些信息还能找到？答案是三种机制并存：人写的项目规则、模型写的事实笔记、可调用的工作流定义。</p>
+<p>入口：<code>src/utils/claudemd.ts</code> + <code>src/memdir/</code>。三种机制并存：</p>
+<h3 id="6-1-CLAUDE-md（人写、项目级）"><a href="#6-1-CLAUDE-md（人写、项目级）" class="headerlink" title="6.1 CLAUDE.md（人写、项目级）"></a>6.1 CLAUDE.md（人写、项目级）</h3><p>四层级联，按优先级递进合并：</p>
+<ul>
+<li><strong>Managed</strong>：<code>/etc/claude-code/CLAUDE.md</code>（企业通过 MDM &#x2F; 设备管理系统推送的强制规则）</li>
+<li><strong>User</strong>：<code>~/.claude/CLAUDE.md</code>（用户全局）</li>
+<li><strong>Project</strong>：<code>./CLAUDE.md</code> 或 <code>./.claude/CLAUDE.md</code>（仓库 git 检入）</li>
+<li><strong>Local</strong>：<code>./CLAUDE.local.md</code>（项目内私有）</li>
+</ul>
+<p>启动时从 cwd 向上遍历到根，沿途收集所有 CLAUDE.md。支持 <code>@include</code> 指令递归引入外部文件（深度限 5），HTML 注释会被剥掉，frontmatter 的 <code>paths:</code> 字段可以让某些规则只对部分目录生效。最终拼成一个独立 system prompt block。</p>
+<h3 id="6-2-memdir-Auto-Memory（模型写、user-×-project）"><a href="#6-2-memdir-Auto-Memory（模型写、user-×-project）" class="headerlink" title="6.2 memdir &#x2F; Auto Memory（模型写、user × project）"></a>6.2 memdir &#x2F; Auto Memory（模型写、user × project）</h3><p>隔离维度是 <strong>user × project</strong>——路径 <code>~/.claude/projects/&lt;sanitized-git-root&gt;/memory/</code> 同时按用户和项目分桶。同一项目里你和同事各有一份，互不可见，和 CLAUDE.md project 层”团队 git 共享”形成对比。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">~/.claude/projects/&lt;sanitized-git-root&gt;/memory/</span><br><span class="line">├── MEMORY.md          ← 索引（≤200行/25KB）</span><br><span class="line">├── user_xxx.md        ← 各主题独立文件</span><br><span class="line">├── feedback_xxx.md</span><br><span class="line">├── project_xxx.md</span><br><span class="line">└── reference_xxx.md</span><br></pre></td></tr></table></figure>
+
+<p>设计要点：</p>
+<ul>
+<li><strong>索引 + 主题文件分离</strong>：<code>MEMORY.md</code> 只放一行条目（<code>- [Title](file.md) — hook</code>），主题细节在独立文件里</li>
+<li><strong>没有专用写工具</strong>：模型用通用 Write&#x2F;Edit 工具自己读写，靠 system prompt 里的”auto memory”教程教它怎么做</li>
+<li><strong>四种类型</strong>：<code>user</code>（角色偏好）、<code>feedback</code>（行为修正）、<code>project</code>（项目背景事实）、<code>reference</code>（外部系统指针）</li>
+<li><strong>加载方式（默认）</strong>：完整的 <code>MEMORY.md</code> 内容随 CLAUDE.md 一起被注入到 messages[0] 的 user-context block 里；system prompt 只放”auto memory”教程教模型怎么读写，不放 MEMORY.md 内容本身。注意：源码里还有一条按需选择的路径（<code>findRelevantMemories</code> + Sonnet 选最多 5 条相关主题文件），但受 GrowthBook 实验 flag 控制，默认对外部用户<strong>不开</strong></li>
+</ul>
+<p>这是 CLAUDE.md 不能做到的：跨会话学习、自演进、模型可写、且每用户一份。</p>
+<h3 id="6-3-Skills（可调用工作流）"><a href="#6-3-Skills（可调用工作流）" class="headerlink" title="6.3 Skills（可调用工作流）"></a>6.3 Skills（可调用工作流）</h3><p><code>src/skills/</code> 与 <code>src/commands.ts</code>。三处来源：bundled（编译进二进制）、<code>~/.claude/skills/</code> 与 <code>./.claude/skills/</code> 下的 Markdown、plugin 提供。</p>
+<p>Skills 严格说不算”记忆”，更像<strong>长期沉淀的工作流</strong>：可被 <code>SkillTool</code> 调用、由模型按描述匹配触发。例如公开可用的 <code>/init</code> skill 会扫描代码库初始化一份 CLAUDE.md。</p>
+<h3 id="三者对比"><a href="#三者对比" class="headerlink" title="三者对比"></a>三者对比</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">flowchart TB</span><br><span class="line">    subgraph SP[启动时注入 messages 首位 / system prompt]</span><br><span class="line">        CMD[CLAUDE.md 全文&lt;br/&gt;人写·项目·git版控]</span><br><span class="line">        MEM[MEMORY.md 全文&lt;br/&gt;模型写·user×project·本地]</span><br><span class="line">        SKL[Skills 命令列表&lt;br/&gt;名称+描述]</span><br><span class="line">    end</span><br><span class="line"></span><br><span class="line">    subgraph LZ[运行中按需加载]</span><br><span class="line">        SKT[SkillTool 调用&lt;br/&gt;载入 skill 完整内容]</span><br><span class="line">    end</span><br><span class="line"></span><br><span class="line">    SKL -.触发.-&gt; SKT</span><br><span class="line"></span><br><span class="line">    SP --&gt; Q[模型推理]</span><br><span class="line">    LZ --&gt; Q</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>CLAUDE.md</th>
+<th>Auto Memory</th>
+<th>Skills</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>维护者</td>
+<td>人</td>
+<td>模型</td>
+<td>人 &#x2F; 模型</td>
+</tr>
+<tr>
+<td>范围</td>
+<td>项目级（团队共享）</td>
+<td>user × project 二维矩阵（用户私有 × 按项目分桶）</td>
+<td>全局或项目</td>
+</tr>
+<tr>
+<td>持久化</td>
+<td>git 检入</td>
+<td><code>~/.claude/projects/.../memory/</code></td>
+<td>Markdown 文件</td>
+</tr>
+<tr>
+<td>加载</td>
+<td>启动注入 messages 首位</td>
+<td>启动注入 messages 首位（与 CLAUDE.md 合并）</td>
+<td>名称 eager + 内容 on-invoke</td>
+</tr>
+<tr>
+<td>信息流</td>
+<td>人 → 模型</td>
+<td>模型 ↔ 模型</td>
+<td>模型 → 工具调用</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="一图总览"><a href="#一图总览" class="headerlink" title="一图总览"></a>一图总览</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">flowchart TB</span><br><span class="line">    subgraph LT[长期记忆 跨会话]</span><br><span class="line">        CMD2[CLAUDE.md 四层级联]</span><br><span class="line">        MD[memdir 索引+主题文件]</span><br><span class="line">        SK[Skills 工作流]</span><br><span class="line">    end</span><br><span class="line"></span><br><span class="line">    subgraph ST[短期记忆 同一会话]</span><br><span class="line">        MM[mutableMessages 内存]</span><br><span class="line">        JL[(JSONL transcript 落盘)]</span><br><span class="line">    end</span><br><span class="line"></span><br><span class="line">    subgraph IM[瞬时 同一 trajectory]</span><br><span class="line">        AM[assistantMessages&lt;br/&gt;thinking+text+tool_use]</span><br><span class="line">        TR[toolResults&lt;br/&gt;截断后的工具输出]</span><br><span class="line">    end</span><br><span class="line"></span><br><span class="line">    LT --&gt;|启动时进 system prompt| SP[(system prompt blocks&lt;br/&gt;带 cache_control)]</span><br><span class="line">    SP --&gt; QE[QueryEngine.submitMessage]</span><br><span class="line">    MM --&gt; QE</span><br><span class="line">    QE --&gt; QL[queryLoop while true]</span><br><span class="line">    QL &lt;--&gt; AM</span><br><span class="line">    QL &lt;--&gt; TR</span><br><span class="line">    QL --&gt;|每条新消息| MM</span><br><span class="line">    MM --&gt;|appendEntry 去重| JL</span><br><span class="line"></span><br><span class="line">    QL -.token超阈值.-&gt; CP[compact: 模型总结&lt;br/&gt;+ boundary marker]</span><br><span class="line">    CP --&gt; MM</span><br></pre></td></tr></table></figure>
+
+<p>记住几条主线即可：</p>
+<ol>
+<li><strong>思考块在 trajectory 里只增不减</strong> —— Claude 4 thinking API 的硬约束</li>
+<li><strong>system prompt 是 block 数组，不是字符串</strong> —— cache 边界靠这个划分</li>
+<li><strong>transcript 落盘字段比模型见到的更丰富</strong> —— sessionId、parentUuid 是回放和 compact 跨界的关键</li>
+<li><strong>压缩是 fork 一次模型调用做总结</strong> —— 不是简单截断，所以会有 9 段结构化模板</li>
+<li><strong>长期记忆 &#x3D; CLAUDE.md（人写）+ memdir（模型写）+ skills（工作流）</strong> —— 三者互补不互替</li>
+</ol>
+<hr>
+<h2 id="Appendix"><a href="#Appendix" class="headerlink" title="Appendix"></a>Appendix</h2><h3 id="A-cacheScope-global-的跨用户共享细节"><a href="#A-cacheScope-global-的跨用户共享细节" class="headerlink" title="A. cacheScope=&#39;global&#39; 的跨用户共享细节"></a>A. <code>cacheScope=&#39;global&#39;</code> 的跨用户共享细节</h3><p>正文多处提到 system prompt 静态段挂 <code>cacheScope=&#39;global&#39;</code> 可被”跨用户共享命中”。这里把”和谁共享、能不能保证命中”展开。</p>
+<h4 id="共享条件：字节流必须完全一致"><a href="#共享条件：字节流必须完全一致" class="headerlink" title="共享条件：字节流必须完全一致"></a>共享条件：字节流必须完全一致</h4><p><code>cacheScope=&#39;global&#39;</code> 只是 opt-in 信号，真正能命中靠<strong>两个用户该段字节流完全相等</strong>。Claude Code 静态段虽叫”静态”，里面其实有不少分支因素：</p>
+<table>
+<thead>
+<tr>
+<th>分支因素</th>
+<th>触发位置</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>USER_TYPE === &#39;ant&#39;</code>（Anthropic 内部 vs 外部）</td>
+<td>getSimpleDoingTasksSection 多 4 条 bullet</td>
+</tr>
+<tr>
+<td>Claude Code 版本升级</td>
+<td>每次发版整个 prompt 文本可能变</td>
+</tr>
+<tr>
+<td><code>outputStyleConfig</code>（Output Style 设置）</td>
+<td>getSimpleIntroSection 措辞</td>
+</tr>
+<tr>
+<td><code>enabledTools</code>（启用了哪些工具）</td>
+<td>getUsingYourToolsSection 列出的工具</td>
+</tr>
+<tr>
+<td>REPL 模式 &#x2F; embedded search tools 等 feature flag</td>
+<td>多处 block 内容分支</td>
+</tr>
+<tr>
+<td><code>feature(&#39;PROACTIVE&#39;)</code> &#x2F; <code>feature(&#39;KAIROS&#39;)</code></td>
+<td>整体走另一条 prompt 路径</td>
+</tr>
+</tbody></table>
+<h4 id="真实”共享池”定义"><a href="#真实”共享池”定义" class="headerlink" title="真实”共享池”定义"></a>真实”共享池”定义</h4><p><strong>同一 Claude Code 版本 + 同一 USER_TYPE + 同一组 feature flag&#x2F;工具配置 + 同一 outputStyle 的所有用户</strong>。</p>
+<ul>
+<li>外部用户 + 默认配置：池里同时有几十万到几百万人，命中率近乎 100%</li>
+<li>内部 &#x2F; 实验配置：池小很多，可能只有内部几百人</li>
+<li>每次发版静态段字节流变化 → 老缓存全 invalidated → 新池子第一个用户付一次 cache_creation，5 分钟内后续用户命中</li>
+</ul>
+<h4 id="安全-隐私"><a href="#安全-隐私" class="headerlink" title="安全&#x2F;隐私"></a>安全&#x2F;隐私</h4><ul>
+<li>共享内容是”所有人都有”的标准 system prompt，不含任何用户私有信息</li>
+<li>CLAUDE.md &#x2F; MEMORY.md &#x2F; git status 都在 boundary 之后（<code>cacheScope=null</code>），不进跨用户池</li>
+<li><code>attribution header</code>（账单&#x2F;客户标识）显式标 <code>cacheScope=null</code>（src&#x2F;utils&#x2F;api.ts:389），避免缓存条目绑到特定计费实体</li>
+<li>即使存在 cache timing side channel，能探出来的只是”标准 system prompt 静态段最近请求频率”，是公开内容</li>
+</ul>
+<h3 id="B-Thinking-块的处理细节"><a href="#B-Thinking-块的处理细节" class="headerlink" title="B. Thinking 块的处理细节"></a>B. Thinking 块的处理细节</h3><h4 id="B-1-跨-trajectory-保留策略"><a href="#B-1-跨-trajectory-保留策略" class="headerlink" title="B.1 跨 trajectory 保留策略"></a>B.1 跨 trajectory 保留策略</h4><p>trajectory 内的保留是 <strong>API 硬性要求</strong>，但 Claude Code 实际把保留范围扩展到了整个会话——<strong>默认情况下，前几个 trajectory 的 thinking 块也跟着每轮请求一起传给模型</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>层面</th>
+<th>同一 trajectory 内</th>
+<th>跨 trajectory（同一会话）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Anthropic API 强制要求</strong></td>
+<td>必须保留：删改 thinking&#x2F;redacted_thinking 会破坏签名链 → 400</td>
+<td>不强制：trajectory 结束后 thinking 块”过期”，删了也不会 400</td>
+</tr>
+<tr>
+<td><strong>Claude Code 默认行为</strong></td>
+<td>全保留</td>
+<td><strong>也全保留</strong>——不主动剥离</td>
+</tr>
+</tbody></table>
+<p>source 注释（src&#x2F;query.ts:158）原话：”Thinking blocks must be preserved <strong>for the duration of</strong> an assistant trajectory…”——只规定下界，没规定上界。Claude Code 选择”超额完成”的理由：保护 prompt cache（剥离会改变字节流、跨轮全 miss）+ 模型可能受益于历史推理 + 代码简单（不维护 trajectory 边界检测）。</p>
+<p><strong>真正会剥离的两个场景</strong>（入口：<code>src/utils/messages.ts:5066</code> 的 <code>stripSignatureBlocks()</code>），共同特征是<strong>signature 失效、留着也没用</strong>：</p>
+<ul>
+<li><strong><code>/login</code> 切换凭证</strong>（commands&#x2F;login&#x2F;login.tsx:24）：thinking signature 绑定到生成时的 API key，切 key 后旧 signature 校验失败</li>
+<li><strong>fallback 到其他模型</strong>（query.ts:924-928）：thinking signature 也绑定到具体模型，主模型挂 fallback 到 opus 时旧 signature 不被认。注释原话：”Thinking signatures are model-bound: replaying a protected-thinking block to an unprotected fallback 400s.”</li>
+</ul>
+<p><strong>几个不是”跨轮丢弃”的清理操作</strong>（normalizeMessagesForAPI 内部）：</p>
+<ul>
+<li><code>filterTrailingThinkingFromLastAssistant</code>（src&#x2F;utils&#x2F;messages.ts:4781）：assistant 消息不能以 thinking 块结尾（API 规则 2），streaming 中断时会有这种状态，需要修</li>
+<li><code>filterOrphanedThinkingOnlyMessages</code>（4991 行）：处理 streaming 中断+恢复时产生的”孤儿 thinking 消息”</li>
+</ul>
+<h4 id="B-2-thinking-为什么大多数时候”看不见”"><a href="#B-2-thinking-为什么大多数时候”看不见”" class="headerlink" title="B.2 thinking 为什么大多数时候”看不见”"></a>B.2 thinking 为什么大多数时候”看不见”</h4><p>交互式 Claude Code 默认让用户看不到模型思考内容，<strong>不是因为安全分类器</strong>，而是三层选择叠加：</p>
+<ol>
+<li><strong>API 摘要：默认关</strong>——Claude Code 默认发 <code>redact-thinking-2026-02-12</code> beta header（src&#x2F;utils&#x2F;betas.ts:270-276），告诉 API “别用 Haiku 给思考做可读摘要、给我加密 blob 就行”。理由：摘要只对 <code>Ctrl+O</code> transcript 模式有用，多数用户不开</li>
+<li><strong>UI 渲染：默认跳过</strong>——普通交互模式下 <code>redacted_thinking</code> 块连占位 stub 都不画（src&#x2F;components&#x2F;Message.tsx:524-528）</li>
+<li><strong>历史折叠</strong>——当前 trajectory 结束后，<code>hidePastThinking</code> 把过去的 thinking 块折叠掉（src&#x2F;components&#x2F;Messages.tsx:391）。注意这是<strong>纯 UI 行为</strong>，和 API 请求里包不包含旧 thinking 块完全无关，API 那边照传不误</li>
+</ol>
+<p>打开方式：</p>
+<figure class="highlight jsonc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ~/.claude/settings.json</span></span><br><span class="line"><span class="punctuation">&#123;</span> <span class="attr">&quot;showThinkingSummaries&quot;</span><span class="punctuation">:</span> <span class="literal"><span class="keyword">true</span></span> <span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>设了之后 Claude Code 不再发 redact-thinking header → API 返回带 Haiku 摘要的可读 <code>thinking</code> 块 → 按 <code>Ctrl+O</code> 或 <code>--verbose</code> 即可看到。</p>
+<p>注意区分两种 <code>redacted_thinking</code> 来源：<strong>客户端 opt-in</strong>（上面这个机制，可关闭）vs <strong>服务端 safety 强制</strong>（Anthropic 分类器触发时无视 beta header 强制加密；少见、改不了）。两者在 API 字节流和 UI 上都无法区分。</p>
+<h4 id="B-3-和-DeepSeek-等-reasoning-model-的策略对比"><a href="#B-3-和-DeepSeek-等-reasoning-model-的策略对比" class="headerlink" title="B.3 和 DeepSeek 等 reasoning model 的策略对比"></a>B.3 和 DeepSeek 等 reasoning model 的策略对比</h4><p>跨 trajectory 保留 thinking 是 Claude 的选择，<strong>不是 reasoning model 的通用做法</strong>。DeepSeek R1 &#x2F; o1 等走相反路线：跨 trajectory 直接丢掉历史 <code>reasoning_content</code>，只保留 final answer 进入下一轮（同 trajectory 内的工具调用仍必须回传，跟 Claude 一致）。</p>
+<p>两种选择都合理，取决于四个维度：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>倾向丢弃</th>
+<th>倾向保留</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>训练分布</strong></td>
+<td>训练时历史轮就只保留 final answer（R1 RLHF &#x2F; 基于人类反馈的强化学习范式）</td>
+<td>训练时 condition 在历史 thinking 上（Claude）</td>
+</tr>
+<tr>
+<td><strong>thinking 体量</strong></td>
+<td>5k-30k token（R1 long-CoT，长链思考）</td>
+<td>&lt; 5k token（Claude adaptive）</td>
+</tr>
+<tr>
+<td><strong>场景独立性</strong></td>
+<td>一问一答、轮间弱相关</td>
+<td>Agent 工作流、trajectory 高频强相关</td>
+</tr>
+<tr>
+<td><strong>缓存基础设施</strong></td>
+<td>缓存价值低，留着不省钱</td>
+<td>prompt cache + signature → 留着 ≈ cache_read 价格</td>
+</tr>
+</tbody></table>
+<p><strong>关键判定问题</strong>：”这个模型在训练时见过历史 thinking 出现在 context 里吗？” 见过就保留、没见过就丢——再加后三个维度的微调。把任一边策略搬到另一边都会变差：R1 推理时塞回历史 thinking → OOD（out-of-distribution，超出训练分布）且几轮把 32k window 撑爆；Claude 跨 trajectory 丢 thinking → cache 全 miss 且模型预期存在却找不到。</p>
+<p>“哪种更好”脱离具体模型没有意义，两种都是匹配自家训练分布 + 应用场景 + 基础设施的局部最优。</p>
+
+  </div>
+</article>
+
+
+
+        
+          <div id="footer-post-container">
+  <div id="footer-post">
+
+    <div id="nav-footer" style="display: none">
+      <ul>
+        
+          <li><a href="/">首页</a></li>
+        
+          <li><a href="/about/">关于</a></li>
+        
+          <li><a href="/archives/">归档</a></li>
+        
+          <li><a href="/travel/">旅行</a></li>
+        
+          <li><a target="_blank" rel="noopener" href="http://github.com/probberechts">项目</a></li>
+        
+      </ul>
+    </div>
+
+    
+    
+      <div id="toc-footer" style="display: none">
+        <ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#0-%E5%89%8D%E7%BD%AE%E6%A6%82%E5%BF%B5"><span class="toc-text">0. 前置概念</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#0-1-Session%EF%BC%88%E4%BC%9A%E8%AF%9D%EF%BC%89"><span class="toc-text">0.1 Session（会话）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#0-2-Trajectory%EF%BC%88%E8%BD%A8%E8%BF%B9%EF%BC%89"><span class="toc-text">0.2 Trajectory（轨迹）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#0-3-Anthropic-Messages-API-%E7%9A%84%E5%8F%82%E6%95%B0%E7%BB%93%E6%9E%84"><span class="toc-text">0.3 Anthropic Messages API 的参数结构</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#1-%E9%A6%96%E6%AC%A1%E6%9E%84%E5%BB%BA-system-prompt"><span class="toc-text">1. 首次构建 system prompt</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-cache-control-%E7%9A%84%E5%87%86%E7%A1%AE%E8%AF%AD%E4%B9%89"><span class="toc-text">1.1 cache_control 的准确语义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-%E7%A4%BA%E4%BE%8B%EF%BC%9Ablock-%E7%BB%93%E6%9E%84%E9%AA%A8%E6%9E%B6"><span class="toc-text">1.2 示例：block 结构骨架</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-%E5%90%8C%E4%B8%80-trajectory-%E5%86%85%E7%9A%84%E5%86%85%E5%AE%B9%E4%BF%9D%E7%95%99"><span class="toc-text">2. 同一 trajectory 内的内容保留</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-%E5%A4%9A%E8%BD%AE%E5%AF%B9%E8%AF%9D%EF%BC%88%E7%94%A8%E6%88%B7%E7%BB%A7%E7%BB%AD%E8%BF%BD%E9%97%AE%EF%BC%89"><span class="toc-text">3. 多轮对话（用户继续追问）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-%E7%9F%AD%E6%9C%9F%E6%B6%88%E6%81%AF%E7%9A%84%E5%AD%98%E5%82%A8"><span class="toc-text">4. 短期消息的存储</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-JSONL-%E6%96%87%E4%BB%B6%E6%A0%B7%E6%9C%AC"><span class="toc-text">4.1 JSONL 文件样本</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-%E4%B8%8A%E4%B8%8B%E6%96%87%E5%8E%8B%E7%BC%A9"><span class="toc-text">5. 上下文压缩</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-%E9%95%BF%E6%9C%9F%E8%AE%B0%E5%BF%86"><span class="toc-text">6. 长期记忆</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-CLAUDE-md%EF%BC%88%E4%BA%BA%E5%86%99%E3%80%81%E9%A1%B9%E7%9B%AE%E7%BA%A7%EF%BC%89"><span class="toc-text">6.1 CLAUDE.md（人写、项目级）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-memdir-Auto-Memory%EF%BC%88%E6%A8%A1%E5%9E%8B%E5%86%99%E3%80%81user-%C3%97-project%EF%BC%89"><span class="toc-text">6.2 memdir &#x2F; Auto Memory（模型写、user × project）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-Skills%EF%BC%88%E5%8F%AF%E8%B0%83%E7%94%A8%E5%B7%A5%E4%BD%9C%E6%B5%81%EF%BC%89"><span class="toc-text">6.3 Skills（可调用工作流）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%89%E8%80%85%E5%AF%B9%E6%AF%94"><span class="toc-text">三者对比</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E5%9B%BE%E6%80%BB%E8%A7%88"><span class="toc-text">一图总览</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Appendix"><span class="toc-text">Appendix</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#A-cacheScope-global-%E7%9A%84%E8%B7%A8%E7%94%A8%E6%88%B7%E5%85%B1%E4%BA%AB%E7%BB%86%E8%8A%82"><span class="toc-text">A. cacheScope&#x3D;&#39;global&#39; 的跨用户共享细节</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#B-Thinking-%E5%9D%97%E7%9A%84%E5%A4%84%E7%90%86%E7%BB%86%E8%8A%82"><span class="toc-text">B. Thinking 块的处理细节</span></a></li></ol></li></ol>
+      </div>
+    
+
+    <div id="share-footer" style="display: none">
+      <ul>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.facebook.com/sharer.php?u=https://daghlny.github.io/2026/05/24/claude-code-memory-system/"><i class="fab fa-facebook fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://twitter.com/share?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&text=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-twitter fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.linkedin.com/shareArticle?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&title=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-linkedin fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://pinterest.com/pin/create/bookmarklet/?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&is_video=false&description=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-pinterest fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" href="mailto:?subject=从源代码分析 Claude Code 记忆系统设计&body=Check out this article: https://daghlny.github.io/2026/05/24/claude-code-memory-system/"><i class="fa-solid fa-envelope fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://getpocket.com/save?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&title=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-get-pocket fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://reddit.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&title=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-reddit fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.stumbleupon.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&title=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-stumbleupon fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://digg.com/submit?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&title=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-digg fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="http://www.tumblr.com/share/link?url=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&name=从源代码分析 Claude Code 记忆系统设计&description="><i class="fab fa-tumblr fa-lg" aria-hidden="true"></i></a></li>
+  <li><a class="icon" target="_blank" rel="noopener" href="https://news.ycombinator.com/submitlink?u=https://daghlny.github.io/2026/05/24/claude-code-memory-system/&t=从源代码分析 Claude Code 记忆系统设计"><i class="fab fa-hacker-news fa-lg" aria-hidden="true"></i></a></li>
+</ul>
+
+    </div>
+
+    <div id="actions-footer">
+        <a id="menu" class="icon" href="#" onclick="$('#nav-footer').toggle();return false;"><i class="fa-solid fa-bars fa-lg" aria-hidden="true"></i> 菜单</a>
+        
+          <a id="toc" class="icon" href="#" onclick="$('#toc-footer').toggle();return false;"><i class="fa-solid fa-list fa-lg" aria-hidden="true"></i> 目录</a>
+        
+        <a id="share" class="icon" href="#" onclick="$('#share-footer').toggle();return false;"><i class="fa-solid fa-share-alt fa-lg" aria-hidden="true"></i> 分享</a>
+        <a id="top" style="display:none" class="icon" href="#" onclick="$('html, body').animate({ scrollTop: 0 }, 'fast');"><i class="fa-solid fa-chevron-up fa-lg" aria-hidden="true"></i> 返回顶部</a>
+    </div>
+
+  </div>
+</div>
+
+        
+        <footer id="footer">
+  <div class="footer-left">
+    Copyright &copy;
+    
+    
+    2016-2026
+    Yinuo Li
+  </div>
+  <div class="footer-right">
+    <nav>
+      <ul>
+        <!--
+       --><li><a href="/">首页</a></li><!--
+     --><!--
+       --><li><a href="/about/">关于</a></li><!--
+     --><!--
+       --><li><a href="/archives/">归档</a></li><!--
+     --><!--
+       --><li><a href="/travel/">旅行</a></li><!--
+     --><!--
+       --><li><a target="_blank" rel="noopener" href="http://github.com/probberechts">项目</a></li><!--
+     -->
+      </ul>
+    </nav>
+  </div>
+</footer>
+
+    </div>
+    <!-- styles -->
+
+
+
+  <link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" onload="this.onload=null;this.rel='stylesheet'"/>
+
+
+    <!-- jquery -->
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js" crossorigin="anonymous"></script>
+
+
+
+
+<!-- clipboard -->
+
+  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/2.0.7/clipboard.min.js" crossorigin="anonymous"></script>
+  
+  <script type="text/javascript">
+  $(function() {
+    // copy-btn HTML
+    var btn = "<span class=\"btn-copy tooltipped tooltipped-sw\" aria-label=\"复制到粘贴板！\">";
+    btn += '<i class="fa-regular fa-clone"></i>';
+    btn += '</span>';
+    // mount it!
+    $(".highlight table").before(btn);
+    var clip = new ClipboardJS('.btn-copy', {
+      text: function(trigger) {
+        return Array.from(trigger.nextElementSibling.querySelectorAll('.code')).reduce((str,it)=>str+it.innerText+'\n','')
+      }
+    });
+    clip.on('success', function(e) {
+      e.trigger.setAttribute('aria-label', "复制成功！");
+      e.clearSelection();
+    })
+  })
+  </script>
+
+
+<script src="/js/main.js"></script>
+
+<!-- search -->
+
+<!-- Baidu Analytics -->
+
+<!-- Cloudflare Analytics -->
+
+<!-- Disqus Comments -->
+
+<!-- utterances Comments -->
+
+</body>
+</html>
